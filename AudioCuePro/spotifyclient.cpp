@@ -1,5 +1,34 @@
 #include "spotifyclient.h"
+#include <QNetworkRequest>
 #include <QUrlQuery>   // NEW
+#include <QStringList>
+
+static QString normalizeSpotifyUri(const QString &input)
+{
+    const QString trimmed = input.trimmed();
+    if (trimmed.startsWith("spotify:track:"))
+        return trimmed;
+
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        const QUrl url(trimmed);
+        const QStringList segments = url.path().split('/', Qt::SkipEmptyParts);
+        if (segments.size() >= 2 && segments[0] == "track") {
+            return "spotify:track:" + segments[1];
+        }
+    }
+
+    return trimmed;
+}
+
+static QString trackIdFromUri(const QString &uri)
+{
+    const QString norm = normalizeSpotifyUri(uri);
+    const QString prefix = QStringLiteral("spotify:track:");
+    if (norm.startsWith(prefix))
+        return norm.mid(prefix.length());
+
+    return QString();
+}
 
 SpotifyClient::SpotifyClient(QObject *parent)
     : QObject(parent)
@@ -135,5 +164,95 @@ void SpotifyClient::seekPlayback(qint64 positionMs)
                     .arg(reply->errorString()));
         }
         reply->deleteLater();
+    });
+}
+
+void SpotifyClient::fetchCurrentPlayback()
+{
+    if (m_accessToken.isEmpty())
+        return;
+
+    QUrl url(QStringLiteral("https://api.spotify.com/v1/me/player/currently-playing"));
+    QNetworkRequest req(url);
+    req.setRawHeader("Authorization", "Bearer " + m_accessToken.toUtf8());
+
+    QNetworkReply *reply = m_manager.get(req);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            // 204 = no content (nothing playing) -> ignore quietly
+            if (status != 204) {
+                emit errorOccurred(
+                    QStringLiteral("Spotify playback state error (%1): %2")
+                        .arg(status)
+                        .arg(reply->errorString()));
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+        if (data.isEmpty())
+            return;
+
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        const QJsonObject obj = doc.object();
+        const QJsonObject item = obj.value(QStringLiteral("item")).toObject();
+
+        const QString uri = normalizeSpotifyUri(item.value(QStringLiteral("uri")).toString());
+        const qint64 duration = item.value(QStringLiteral("duration_ms")).toVariant().toLongLong();
+        const qint64 progress = obj.value(QStringLiteral("progress_ms")).toVariant().toLongLong();
+        const bool playing = obj.value(QStringLiteral("is_playing")).toBool();
+
+        if (!uri.isEmpty())
+            emit playbackStateReceived(uri, progress, duration, playing);
+    });
+}
+
+void SpotifyClient::fetchTrackMetadata(const QString &spotifyUri)
+{
+    if (m_accessToken.isEmpty())
+        return;
+
+    const QString trackId = trackIdFromUri(spotifyUri);
+    if (trackId.isEmpty()) {
+        emit errorOccurred(QStringLiteral("Invalid Spotify track URI."));
+        return;
+    }
+
+    QUrl url(QStringLiteral("https://api.spotify.com/v1/tracks/%1").arg(trackId));
+    QNetworkRequest req(url);
+    req.setRawHeader("Authorization", "Bearer " + m_accessToken.toUtf8());
+
+    QNetworkReply *reply = m_manager.get(req);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trackId]() {
+        int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            if (status != 404) {
+                emit errorOccurred(
+                    QStringLiteral("Spotify track fetch error (%1): %2")
+                        .arg(status)
+                        .arg(reply->errorString()));
+            }
+            reply->deleteLater();
+            return;
+        }
+
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        reply->deleteLater();
+
+        const QJsonObject obj = doc.object();
+        const qint64 duration = obj.value(QStringLiteral("duration_ms")).toVariant().toLongLong();
+        QString uri = normalizeSpotifyUri(obj.value(QStringLiteral("uri")).toString());
+        if (uri.isEmpty())
+            uri = "spotify:track:" + trackId;
+
+        if (duration > 0 && !uri.isEmpty())
+            emit trackDurationReceived(uri, duration);
     });
 }

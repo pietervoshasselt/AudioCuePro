@@ -42,6 +42,7 @@ public:
     QString audioPath() const { return m_audioPath; }
     QString altName() const;
     bool isSpotify() const { return m_isSpotify; }
+    QString spotifyUri() const;
 	bool isPaused() const;      // <-- add this
 
     QColor trackColor() const { return m_trackColor; }
@@ -60,6 +61,10 @@ public:
     void pauseFromUI();
     void stopImmediately();
     void stopWithFade();
+
+    // Spotify helpers
+    void updateSpotifyPlayback(qint64 positionMs, qint64 durationMs, bool isPlaying);
+    qint64 spotifyDurationMs() const { return m_spotifyDurationMs; }
 
     void setMasterVolume(double v);
     void setTrackGain(double v);
@@ -126,6 +131,9 @@ private:
 	bool m_spotifyPaused = false;      // NEW: remember paused state
 
     QString m_spotifyUrl;
+    qint64 m_spotifyDurationMs = 0;
+    qint64 m_spotifyPositionMs = 0;
+    bool m_spotifyPlaying = false;
 
     QColor m_trackColor;
 

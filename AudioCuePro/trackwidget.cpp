@@ -15,6 +15,7 @@
 #include <QMessageBox>
 #include <QUrl>
 #include <QDesktopServices>
+#include <QStringList>
 
 // ------------------------------------------------------------
 // Helper: create icon buttons
@@ -45,6 +46,24 @@ static QPushButton* makeIconButton(const QString &fileName,
     return btn;
 }
 
+// Normalize Spotify URLs/URIs to "spotify:track:<id>" for API calls/lookup.
+static QString normalizeSpotifyUri(const QString &input)
+{
+    const QString trimmed = input.trimmed();
+    if (trimmed.startsWith("spotify:track:"))
+        return trimmed;
+
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        const QUrl url(trimmed);
+        const QStringList segments = url.path().split('/', Qt::SkipEmptyParts);
+        if (segments.size() >= 2 && segments[0] == "track") {
+            return "spotify:track:" + segments[1];
+        }
+    }
+
+    return trimmed;
+}
+
 // ============================================================
 // Constructor – from audio path OR Spotify URL
 // ============================================================
@@ -59,7 +78,7 @@ TrackWidget::TrackWidget(const QString &audioPath, QWidget *parent)
         audioPath.contains("open.spotify.com/track"))
     {
         m_isSpotify = true;
-        m_spotifyUrl = audioPath;
+        m_spotifyUrl = normalizeSpotifyUri(audioPath);
     }
 
     initUI();
@@ -85,11 +104,20 @@ TrackWidget::TrackWidget(const QJsonObject &obj,
     if (obj.contains("spotify") && obj["spotify"].toBool())
     {
         m_isSpotify = true;
-        m_spotifyUrl = obj["url"].toString();
+        m_spotifyUrl = normalizeSpotifyUri(obj["url"].toString());
         m_audioPath = m_spotifyUrl;
 
         initUI();
         connectSignals();
+
+        if (obj.contains("start"))
+            startSpin->setValue(obj["start"].toDouble());
+        if (obj.contains("end"))
+            endSpin->setValue(obj["end"].toDouble());
+        if (obj.contains("durationMs"))
+            m_spotifyDurationMs = obj["durationMs"].toVariant().toLongLong();
+        else if (obj.contains("duration"))
+            m_spotifyDurationMs = qint64(obj["duration"].toDouble() * 1000.0);
 
         if (obj.contains("altname"))
             altNameEdit->setText(obj["altname"].toString());
@@ -103,6 +131,7 @@ TrackWidget::TrackWidget(const QJsonObject &obj,
             if (c.isValid()) setTrackColor(c);
         }
 
+        updateTimeLabels();
         updateStatusIdle();
         return;
     }
@@ -167,6 +196,10 @@ QJsonObject TrackWidget::toJson(const QString &copyFolder) const
         obj["altname"] = altNameEdit->text();
         obj["hotkey"]  = keyEdit->text();
         obj["notes"]   = notesEdit->toPlainText();
+        obj["start"]   = startSpin ? startSpin->value() : 0.0;
+        obj["end"]     = endSpin ? endSpin->value() : 0.0;
+        if (m_spotifyDurationMs > 0)
+            obj["durationMs"] = double(m_spotifyDurationMs);
 
         if (m_trackColor.isValid())
             obj["color"] = m_trackColor.name(QColor::HexArgb);
@@ -453,6 +486,20 @@ void TrackWidget::connectSignals()
         emit hotkeyEdited(this, keyEdit->text());
     });
 
+    connect(startSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this](double v){
+                if (wave)
+                    wave->setStart(v * 1000.0);
+                updateTimeLabels();
+            });
+
+    connect(endSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this](double v){
+                if (wave)
+                    wave->setEnd(v * 1000.0);
+                updateTimeLabels();
+            });
+
     if (!m_isSpotify)
     {
         connect(wave, &WaveformView::startChanged,
@@ -468,18 +515,6 @@ void TrackWidget::connectSignals()
                         m_player->setPosition(ms);
                         pausedPos = ms;
                     }
-                });
-
-        connect(startSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-                this, [this](double v){
-                    wave->setStart(v * 1000.0);
-                    updateTimeLabels();
-                });
-
-        connect(endSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-                this, [this](double v){
-                    wave->setEnd(v * 1000.0);
-                    updateTimeLabels();
                 });
 
         connect(gainSlider, &QSlider::valueChanged, this, [this](int val){
@@ -525,10 +560,42 @@ void TrackWidget::loadAudioMetadata()
 // ============================================================
 void TrackWidget::updateTimeLabels()
 {
+    auto fmt = [](qint64 ms){
+        if (ms < 0) ms = 0;
+        return QString("%1:%2.%3")
+            .arg(ms/60000,2,10,QChar('0'))
+            .arg((ms/1000)%60,2,10,QChar('0'))
+            .arg(ms%1000,3,10,QChar('0'));
+    };
+
     if (m_isSpotify)
     {
-        totalTimeLabel->setText("Total: --:--.---");
-        remainingTimeLabel->setText("Remaining: --:--.---");
+        double startSec = startSpin ? startSpin->value() : 0.0;
+        double endSec   = endSpin ? endSpin->value() : 0.0;
+
+        if (endSec <= 0.0 && m_spotifyDurationMs > 0)
+        {
+            endSec = m_spotifyDurationMs / 1000.0;
+            if (endSpin)
+                endSpin->setValue(endSec);
+        }
+
+        qint64 startMs = qint64(startSec * 1000.0);
+        qint64 endMs   = qint64(endSec   * 1000.0);
+
+        if (endMs <= startMs)
+        {
+            totalTimeLabel->setText("Total: --:--.---");
+            remainingTimeLabel->setText("Remaining: --:--.---");
+            return;
+        }
+
+        qint64 totalMs = endMs - startMs;
+        qint64 played = qBound<qint64>(0, m_spotifyPositionMs - startMs, totalMs);
+        qint64 remaining = totalMs - played;
+
+        totalTimeLabel->setText("Total: " + fmt(totalMs));
+        remainingTimeLabel->setText("Remaining: " + fmt(remaining));
         return;
     }
 
@@ -549,14 +616,6 @@ void TrackWidget::updateTimeLabels()
     qint64 startMs = startSec * 1000.0;
     qint64 endMs   = endSec   * 1000.0;
     qint64 totalMs = endMs - startMs;
-
-    auto fmt = [](qint64 ms){
-        if (ms < 0) ms = 0;
-        return QString("%1:%2.%3")
-            .arg(ms/60000,2,10,QChar('0'))
-            .arg((ms/1000)%60,2,10,QChar('0'))
-            .arg(ms%1000,3,10,QChar('0'));
-    };
 
     totalTimeLabel->setText("Total: " + fmt(totalMs));
 
@@ -596,33 +655,32 @@ void TrackWidget::playFromUI()
         if (m_spotifyPaused) {
             // Resume from paused position
             m_spotifyPaused = false;
+            m_spotifyPlaying = true;
             emit spotifyResumeRequested(this);
         } else {
             // Fresh start: compute URI + start position
+            m_spotifyUrl = normalizeSpotifyUri(m_spotifyUrl);
             QString uri = m_spotifyUrl;
 
-            if (uri.startsWith("http://") || uri.startsWith("https://")) {
-                QUrl url(uri);
-                const QStringList segments = url.path().split('/', Qt::SkipEmptyParts);
-                if (segments.size() >= 2 && segments[0] == "track") {
-                    uri = "spotify:track:" + segments[1];
-                }
-            }
+            qint64 posMs = startSpin
+                ? static_cast<qint64>(startSpin->value() * 1000.0)
+                : 0;
 
-            qint64 posMs = 0;
-            if (startSpin)
-                posMs = static_cast<qint64>(startSpin->value() * 1000.0);
+            m_spotifyPositionMs = posMs;
+            m_spotifyPaused = false;
+            m_spotifyPlaying = true;
 
-            emit spotifyPlayRequested(this, uri, posMs); 
-			}
+            emit spotifyPlayRequested(this, uri, posMs);
+        }
 
-     pauseBlinkTimer.stop();
+        pauseBlinkTimer.stop();
         pauseBlinkOn = false;
-		updateStatusPlaying();
-	emit statePlaying(this);   // NEW -> updates trees / Live mode
+        updateStatusPlaying();
+        emit statePlaying(this);   // NEW -> updates trees / Live mode
+        updateTimeLabels();
 
-    return;
-}
+        return;
+    }
 
 
     manualStop = false;
@@ -670,12 +728,14 @@ void TrackWidget::onPauseClicked()
     if (m_isSpotify)
     {
         m_spotifyPaused = true;
+        m_spotifyPlaying = false;
         emit spotifyPauseRequested(this);
 
         pauseBlinkOn = true;
         pauseBlinkTimer.start(400);
         updateStatusPaused(true);
         emit statePaused(this);
+        updateTimeLabels();
         return;
     }
 
@@ -704,10 +764,13 @@ void TrackWidget::onStopClicked()
     if (m_isSpotify)
     {
         m_spotifyPaused = false;
+        m_spotifyPlaying = false;
         emit spotifyStopRequested(this);
 
         pauseBlinkTimer.stop();
         pauseBlinkOn = false;
+        m_spotifyPositionMs = startSpin ? qint64(startSpin->value() * 1000.0) : 0;
+        updateTimeLabels();
         updateStatusIdle();
         emit stateStopped(this);
         return;
@@ -721,7 +784,8 @@ void TrackWidget::stopImmediately()
 {
     if (m_isSpotify)
     {
-  m_spotifyPaused = false;
+        m_spotifyPaused = false;
+        m_spotifyPlaying = false;
         emit spotifyStopRequested(this);
 
         fadeTimer.stop();
@@ -734,6 +798,8 @@ void TrackWidget::stopImmediately()
 
         pauseBlinkTimer.stop();
         pauseBlinkOn = false;
+        m_spotifyPositionMs = startSpin ? qint64(startSpin->value() * 1000.0) : 0;
+        updateTimeLabels();
 
         updateStatusIdle();
         emit stateStopped(this);
@@ -1043,6 +1109,33 @@ void TrackWidget::updatePlaybackRate()
     m_player->setPlaybackRate(rate);
 }
 
+void TrackWidget::updateSpotifyPlayback(qint64 positionMs,
+                                        qint64 durationMs,
+                                        bool isPlaying)
+{
+    if (!m_isSpotify)
+        return;
+
+    if (durationMs > 0)
+    {
+        m_spotifyDurationMs = durationMs;
+        if (endSpin && endSpin->value() <= 0.0)
+            endSpin->setValue(durationMs / 1000.0);
+    }
+
+    if (positionMs >= 0)
+    {
+        m_spotifyPositionMs = positionMs;
+        if (m_spotifyDurationMs > 0 && m_spotifyPositionMs > m_spotifyDurationMs)
+            m_spotifyPositionMs = m_spotifyDurationMs;
+    }
+
+    m_spotifyPaused = !isPlaying;
+    m_spotifyPlaying = isPlaying;
+
+    updateTimeLabels();
+}
+
 // ============================================================
 // COLOR TAG PICKER
 // ============================================================
@@ -1119,6 +1212,11 @@ QString TrackWidget::altName() const
     return altNameEdit->text();
 }
 
+QString TrackWidget::spotifyUri() const
+{
+    return m_spotifyUrl;
+}
+
 // ============================================================
 // DETAILS PANEL VISIBILITY
 // ============================================================
@@ -1144,6 +1242,9 @@ double TrackWidget::endSeconds() const
 
 double TrackWidget::currentPositionSeconds() const
 {
+    if (m_isSpotify)
+        return m_spotifyPositionMs / 1000.0;
+
     return m_player ? (m_player->position() / 1000.0) : 0.0;
 }
 

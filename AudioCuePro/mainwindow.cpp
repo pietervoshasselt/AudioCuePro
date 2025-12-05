@@ -26,6 +26,7 @@
 #include <QBrush>        // NEW
 #include <QVariant>
 #include <QInputDialog>
+#include <QStringList>
 #include "mainwindow.h"
 #include "livemodewindow.h"
 #include <QMessageBox>
@@ -88,6 +89,24 @@ static QPushButton* makeIconButton(const QString &fileName,
         btn->setObjectName(objectName);  // for styling (panicButton etc.)
 
     return btn;
+}
+
+// Normalize Spotify URLs/URIs to "spotify:track:<id>" for comparisons/API calls.
+static QString normalizeSpotifyUriLocal(const QString &input)
+{
+    const QString trimmed = input.trimmed();
+    if (trimmed.startsWith("spotify:track:"))
+        return trimmed;
+
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        const QUrl url(trimmed);
+        const QStringList segments = url.path().split('/', Qt::SkipEmptyParts);
+        if (segments.size() >= 2 && segments[0] == "track") {
+            return "spotify:track:" + segments[1];
+        }
+    }
+
+    return trimmed;
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -417,11 +436,27 @@ m_spotifyAuth->setClientId("7e9997c47b094a138dcb965e40c5d63c");
     if (!savedAccess.isEmpty())
         m_spotifyClient->setAccessToken(savedAccess);
 
+    spotifyPollTimer = new QTimer(this);
+    spotifyPollTimer->setInterval(1000);
+    connect(spotifyPollTimer, &QTimer::timeout, this, [this]() {
+        if (!currentTrack || !currentTrack->isSpotify()) {
+            stopSpotifyPolling();
+            return;
+        }
+        if (m_spotifyClient)
+            m_spotifyClient->fetchCurrentPlayback();
+    });
+
     // connect auth manager signals
     connect(m_spotifyAuth, &SpotifyAuthManager::authSucceeded,
             this, &MainWindow::onSpotifyAuthSucceeded);
     connect(m_spotifyAuth, &SpotifyAuthManager::errorOccurred,
             this, &MainWindow::onSpotifyAuthError);
+
+    connect(m_spotifyClient, &SpotifyClient::playbackStateReceived,
+            this, &MainWindow::onSpotifyPlaybackState);
+    connect(m_spotifyClient, &SpotifyClient::trackDurationReceived,
+            this, &MainWindow::onSpotifyTrackDuration);
 
     // SpotifyClient errors
     connect(m_spotifyClient, &SpotifyClient::errorOccurred,
@@ -710,6 +745,8 @@ void MainWindow::addTrackFromFile(const QString &path)
     TrackWidget *tw = new TrackWidget(path, this);
     connectTrackSignals(tw);
     tw->setMasterVolume(masterVolume);
+    if (tw->isSpotify())
+        requestSpotifyMetadata(tw);
     currentScene().tracks.append(tw);
 }
 void MainWindow::onSpotifyLogin()
@@ -732,6 +769,15 @@ void MainWindow::onSpotifyAuthSucceeded(const QString &accessToken,
     if (!refreshToken.isEmpty())
         settings.setValue("spotify/refreshToken", refreshToken);
 
+    for (Scene &s : scenes)
+    {
+        for (TrackWidget *tw : s.tracks)
+        {
+            if (tw && tw->isSpotify())
+                requestSpotifyMetadata(tw);
+        }
+    }
+
     QMessageBox::information(this, tr("Spotify"),
                              tr("Spotify login successful."));
 }
@@ -745,29 +791,39 @@ void MainWindow::onSpotifyPlayRequested(TrackWidget *tw,
                                         const QString &uri,
                                         qint64 positionMs)
 {
-    Q_UNUSED(tw);
     if (!m_spotifyClient)
         return;
 
+    if (tw)
+        tw->updateSpotifyPlayback(positionMs, tw->spotifyDurationMs(), true);
+
     m_spotifyClient->playTrack(uri, positionMs);
+    startSpotifyPolling();
 }
 
 void MainWindow::onSpotifyPauseRequested(TrackWidget *tw)
 {
-    Q_UNUSED(tw);
     if (!m_spotifyClient)
         return;
 
     m_spotifyClient->pausePlayback();
+    if (tw)
+        tw->updateSpotifyPlayback(-1, -1, false);
+
+    if (m_spotifyClient)
+        m_spotifyClient->fetchCurrentPlayback();
+    startSpotifyPolling();
 }
 
 void MainWindow::onSpotifyResumeRequested(TrackWidget *tw)
 {
-    Q_UNUSED(tw);
     if (!m_spotifyClient)
         return;
 
+    if (tw)
+        tw->updateSpotifyPlayback(-1, tw->spotifyDurationMs(), true);
     m_spotifyClient->resumePlayback();
+    startSpotifyPolling();
 }
 
 void MainWindow::onSpotifyStopRequested(TrackWidget *tw)
@@ -782,6 +838,100 @@ void MainWindow::onSpotifyStopRequested(TrackWidget *tw)
 
     m_spotifyClient->pausePlayback();
     m_spotifyClient->seekPlayback(posMs);
+    if (tw)
+        tw->updateSpotifyPlayback(posMs, tw->spotifyDurationMs(), false);
+    stopSpotifyPolling();
+}
+
+void MainWindow::onSpotifyPlaybackState(const QString &uri,
+                                        qint64 positionMs,
+                                        qint64 durationMs,
+                                        bool isPlaying)
+{
+    TrackWidget *target = nullptr;
+
+    if (currentTrack && currentTrack->isSpotify())
+        target = currentTrack;
+    else
+        target = findSpotifyTrackByUri(uri);
+
+    if (!target)
+    {
+        stopSpotifyPolling();
+        return;
+    }
+
+    const QString incoming = normalizeSpotifyUriLocal(uri);
+    const QString ours = normalizeSpotifyUriLocal(target->spotifyUri());
+    if (!incoming.isEmpty() && !ours.isEmpty() && incoming != ours)
+        return; // Different track playing elsewhere
+
+    target->updateSpotifyPlayback(positionMs, durationMs, isPlaying);
+
+    if (!isPlaying)
+        stopSpotifyPolling();
+
+    updateLiveTimeline();
+}
+
+void MainWindow::onSpotifyTrackDuration(const QString &uri, qint64 durationMs)
+{
+    TrackWidget *tw = findSpotifyTrackByUri(uri);
+    if (!tw)
+        return;
+
+    tw->updateSpotifyPlayback(-1, durationMs, !tw->isPaused());
+    updateLiveTimeline();
+}
+
+void MainWindow::requestSpotifyMetadata(TrackWidget *tw)
+{
+    if (!tw || !tw->isSpotify() || !m_spotifyClient)
+        return;
+
+    const QString uri = normalizeSpotifyUriLocal(tw->spotifyUri());
+    if (!uri.isEmpty())
+        m_spotifyClient->fetchTrackMetadata(uri);
+}
+
+TrackWidget* MainWindow::findSpotifyTrackByUri(const QString &uri) const
+{
+    const QString norm = normalizeSpotifyUriLocal(uri);
+
+    for (const Scene &s : scenes)
+    {
+        for (TrackWidget *tw : s.tracks)
+        {
+            if (!tw || !tw->isSpotify())
+                continue;
+
+            if (normalizeSpotifyUriLocal(tw->spotifyUri()) == norm)
+                return tw;
+        }
+    }
+
+    return nullptr;
+}
+
+void MainWindow::startSpotifyPolling()
+{
+    if (!spotifyPollTimer)
+        return;
+
+    if (!currentTrack || !currentTrack->isSpotify())
+        return;
+
+    if (m_spotifyClient)
+        m_spotifyClient->fetchCurrentPlayback();
+
+    if (!spotifyPollTimer->isActive())
+        spotifyPollTimer->start();
+}
+
+void MainWindow::stopSpotifyPolling()
+{
+    if (spotifyPollTimer)
+        spotifyPollTimer->stop();
 }
 
 
@@ -796,6 +946,8 @@ void MainWindow::onTrackPlayRequested(TrackWidget *tw)
         currentTrack = tw;
         tw->playFromUI();
         updateLiveTimeline();
+        if (!tw->isSpotify())
+            stopSpotifyPolling();
         return;
     }
 
@@ -807,12 +959,15 @@ void MainWindow::onTrackPlayRequested(TrackWidget *tw)
         {
             tw->playFromUI();          // will resume for Spotify and local audio
             updateLiveTimeline();
+            if (!tw->isSpotify())
+                stopSpotifyPolling();
         }
         else
         {
             // Still playing → treat as STOP
             tw->stopWithFade();
             currentTrack = nullptr;
+            stopSpotifyPolling();
             updateLiveTimeline();
         }
         return;
@@ -828,6 +983,9 @@ void MainWindow::onTrackPlayRequested(TrackWidget *tw)
  * ============================================================ */
 void MainWindow::startTrackAfterFade(TrackWidget *nextTrack)
 {
+    if (nextTrack && !nextTrack->isSpotify())
+        stopSpotifyPolling();
+
     if (!currentTrack)
     {
         currentTrack = nextTrack;
@@ -884,6 +1042,7 @@ void MainWindow::onTrackStopRequested(TrackWidget *tw)
     {
         tw->stopWithFade();
         currentTrack = nullptr;
+        stopSpotifyPolling();
         updateLiveTimeline();
     }
 }
@@ -1646,6 +1805,8 @@ void MainWindow::loadQueueFromJson(const QString &path)
                 TrackWidget *tw = new TrackWidget(tobj, audioFolder, this);
                 connectTrackSignals(tw);
                 tw->setMasterVolume(masterVolume);
+                if (tw->isSpotify())
+                    requestSpotifyMetadata(tw);
                 s.tracks.append(tw);
             }
 
@@ -1664,6 +1825,8 @@ void MainWindow::loadQueueFromJson(const QString &path)
             TrackWidget *tw = new TrackWidget(obj, audioFolder, this);
             connectTrackSignals(tw);
             tw->setMasterVolume(masterVolume);
+            if (tw->isSpotify())
+                requestSpotifyMetadata(tw);
             s.tracks.append(tw);
         }
         scenes.append(s);
@@ -1872,6 +2035,7 @@ void MainWindow::stopCurrentTrackImmediately()
         currentTrack->stopImmediately();
         currentTrack = nullptr;
         pendingTrackAfterFade = nullptr;
+        stopSpotifyPolling();
         updateLiveTimeline();
     }
 }

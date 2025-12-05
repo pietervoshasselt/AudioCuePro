@@ -111,6 +111,11 @@ private slots:
 	void onLiveTreeOrderChanged();
 	void onLiveTrackActivated(TrackWidget *tw); // NEW
 
+    void onSpotifyPlaybackState(const QString &uri,
+                                qint64 positionMs,
+                                qint64 durationMs,
+                                bool isPlaying);
+    void onSpotifyTrackDuration(const QString &uri, qint64 durationMs);
 
 
 
@@ -157,6 +162,7 @@ private:
     // Playback control
     TrackWidget *currentTrack = nullptr;
     TrackWidget *pendingTrackAfterFade = nullptr;
+    QTimer *spotifyPollTimer = nullptr;
 
     // Loading support
     QString lastAudioFolder;
@@ -210,6 +216,10 @@ private:
     void onSpotifyStopRequested(TrackWidget *tw);
 	QSettings settings{"AudioCuePro", "AudioCueProApp"};
 	QString lastOpenedDir;
+    void requestSpotifyMetadata(TrackWidget *tw);
+    TrackWidget* findSpotifyTrackByUri(const QString &uri) const;
+    void startSpotifyPolling();
+    void stopSpotifyPolling();
 
 
 };
