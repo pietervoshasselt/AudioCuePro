@@ -821,14 +821,27 @@ void MainWindow::onSpotifyPauseRequested(TrackWidget *tw)
 
 void MainWindow::onSpotifyResumeRequested(TrackWidget *tw)
 {
-    if (!m_spotifyClient)
+    if (!m_spotifyClient || !tw)
         return;
 
-    if (tw)
-        tw->updateSpotifyPlayback(-1, tw->spotifyDurationMs(), true);
-    m_spotifyClient->resumePlayback();
+    // Make sure we always resume THIS track,
+    // not "whatever is paused" in the user’s account.
+    const QString uri = normalizeSpotifyUriLocal(tw->spotifyUri());
+
+    // Use our last known position if we have one;
+    // otherwise fall back to the configured start time.
+    qint64 posMs = static_cast<qint64>(tw->currentPositionSeconds() * 1000.0);
+    if (posMs <= 0)
+        posMs = static_cast<qint64>(tw->startSeconds() * 1000.0);
+
+    // Update the widget’s local state
+    tw->updateSpotifyPlayback(posMs, tw->spotifyDurationMs(), true);
+
+    // Tell Spotify explicitly which track + position to play
+    m_spotifyClient->playTrack(uri, posMs);
     startSpotifyPolling();
 }
+
 
 void MainWindow::onSpotifyStopRequested(TrackWidget *tw)
 {

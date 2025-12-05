@@ -772,9 +772,18 @@ void TrackWidget::playFromUI()
 // ============================================================
 void TrackWidget::onPauseClicked()
 {
+    pauseFromUI();
+}
+
+
+
+
+void TrackWidget::pauseFromUI()
+{
     if (m_isSpotify)
     {
-        m_spotifyPaused = true;
+        // Mirror the Spotify branch of onPauseClicked()
+        m_spotifyPaused  = true;
         m_spotifyPlaying = false;
         emit spotifyPauseRequested(this);
 
@@ -783,30 +792,23 @@ void TrackWidget::onPauseClicked()
         updateStatusPaused(true);
         emit statePaused(this);
         updateTimeLabels();
-		 m_timeLabelTimer.stop();   // NEW
-
+        m_timeLabelTimer.stop();
         return;
     }
 
-    pauseFromUI();
-    pauseBlinkOn = true;
-    pauseBlinkTimer.start(400);
-    updateStatusPaused(true);
-}
-
-
-
-void TrackWidget::pauseFromUI()
-{
     if (!m_player)
         return;
 
     pausedPos = m_player->position();
     m_player->pause();
-	
-	m_timeLabelTimer.stop();   // NEW
+    m_timeLabelTimer.stop();
 
+    pauseBlinkOn = true;
+    pauseBlinkTimer.start(400);
+    updateStatusPaused(true);
+    emit statePaused(this);
 }
+
 
 // ============================================================
 // STOP IMMEDIATELY
