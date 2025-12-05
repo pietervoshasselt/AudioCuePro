@@ -460,10 +460,22 @@ void TrackWidget::initUI()
     }
 
     // ============================================================
-    // S1 MODE — Hide all audio controls for Spotify
+    // S1 MODE — Hide audio controls that don't apply to Spotify
     // ============================================================
+    if (m_isSpotify)
+    {
+        // Keep "Start" visible, hide the rest of row 1
+        if (endSpin)     endSpin->hide();
+        if (fadeInSpin)  fadeInSpin->hide();
+        if (fadeOutSpin) fadeOutSpin->hide();
 
+        // Hide entire row 2: loop, gain, speed, pitch, effect
+        if (row2Widget)
+            row2Widget->hide();
+    }
 }
+
+
 // ============================================================
 // CONNECT SIGNALS
 // ============================================================
@@ -532,8 +544,13 @@ void TrackWidget::connectSignals()
                 });
 
         connect(&fadeTimer, &QTimer::timeout, this, &TrackWidget::onFadeTick);
+		}
         connect(&pauseBlinkTimer, &QTimer::timeout, this, &TrackWidget::onPauseBlink);
-    }
+		 // NEW: smooth time labels (both local + Spotify)
+    m_timeLabelTimer.setInterval(50);  // ~20 FPS
+    connect(&m_timeLabelTimer, &QTimer::timeout,
+            this, &TrackWidget::onTimeLabelTick);
+    
 }
 
 // ============================================================
@@ -623,6 +640,26 @@ void TrackWidget::updateTimeLabels()
     qint64 remaining = totalMs - played;
     remainingTimeLabel->setText("Remaining: " + fmt(remaining));
 }
+void TrackWidget::onTimeLabelTick()
+{
+    if (m_isSpotify)
+    {
+        if (m_spotifyPlaying)
+        {
+            const qint64 step = m_timeLabelTimer.interval();
+            m_spotifyPositionMs += step;
+
+            if (m_spotifyDurationMs > 0 &&
+                m_spotifyPositionMs > m_spotifyDurationMs)
+            {
+                m_spotifyPositionMs = m_spotifyDurationMs;
+            }
+        }
+    }
+
+    // For local audio we just re-read the player position
+    updateTimeLabels();
+}
 
 // ============================================================
 // PLAY BUTTON
@@ -676,12 +713,14 @@ void TrackWidget::playFromUI()
         pauseBlinkTimer.stop();
         pauseBlinkOn = false;
         updateStatusPlaying();
-        emit statePlaying(this);   // NEW -> updates trees / Live mode
+        emit statePlaying(this);
         updateTimeLabels();
+
+        if (!m_timeLabelTimer.isActive())
+            m_timeLabelTimer.start();
 
         return;
     }
-
 
     manualStop = false;
     stopFlag = false;
@@ -699,6 +738,10 @@ void TrackWidget::playFromUI()
         }
 
         updateStatusPlaying();
+
+        if (!m_timeLabelTimer.isActive())
+            m_timeLabelTimer.start();
+
         return;
     }
 
@@ -718,7 +761,11 @@ void TrackWidget::playFromUI()
         loopRemaining = loopCountSpin->value() - 1;
 
     updateStatusPlaying();
+
+    if (!m_timeLabelTimer.isActive())
+        m_timeLabelTimer.start();
 }
+
 
 // ============================================================
 // PAUSE
@@ -736,6 +783,8 @@ void TrackWidget::onPauseClicked()
         updateStatusPaused(true);
         emit statePaused(this);
         updateTimeLabels();
+		 m_timeLabelTimer.stop();   // NEW
+
         return;
     }
 
@@ -754,6 +803,9 @@ void TrackWidget::pauseFromUI()
 
     pausedPos = m_player->position();
     m_player->pause();
+	
+	m_timeLabelTimer.stop();   // NEW
+
 }
 
 // ============================================================
@@ -769,6 +821,8 @@ void TrackWidget::onStopClicked()
 
         pauseBlinkTimer.stop();
         pauseBlinkOn = false;
+        m_timeLabelTimer.stop();   // NEW
+
         m_spotifyPositionMs = startSpin ? qint64(startSpin->value() * 1000.0) : 0;
         updateTimeLabels();
         updateStatusIdle();
@@ -778,6 +832,7 @@ void TrackWidget::onStopClicked()
 
     emit stopRequested(this);
 }
+
 
 
 void TrackWidget::stopImmediately()
@@ -798,6 +853,8 @@ void TrackWidget::stopImmediately()
 
         pauseBlinkTimer.stop();
         pauseBlinkOn = false;
+        m_timeLabelTimer.stop();   // NEW
+
         m_spotifyPositionMs = startSpin ? qint64(startSpin->value() * 1000.0) : 0;
         updateTimeLabels();
 
@@ -824,8 +881,11 @@ void TrackWidget::stopImmediately()
     pauseBlinkTimer.stop();
     pauseBlinkOn = false;
 
+    m_timeLabelTimer.stop();   // NEW
+
     updateStatusIdle();
 }
+
 
 // ============================================================
 // STOP WITH FADE
@@ -1130,8 +1190,13 @@ void TrackWidget::updateSpotifyPlayback(qint64 positionMs,
             m_spotifyPositionMs = m_spotifyDurationMs;
     }
 
-    m_spotifyPaused = !isPlaying;
+    m_spotifyPaused  = !isPlaying;
     m_spotifyPlaying = isPlaying;
+
+    if (m_spotifyPlaying)
+        m_timeLabelTimer.start();
+    else
+        m_timeLabelTimer.stop();
 
     updateTimeLabels();
 }
@@ -1296,3 +1361,13 @@ bool TrackWidget::isPaused() const
 
     return false;
 }
+
+bool TrackWidget::isPlaying() const
+{
+    if (m_isSpotify)
+        return m_spotifyPlaying;
+
+    return m_player &&
+           m_player->playbackState() == QMediaPlayer::PlayingState;
+}
+

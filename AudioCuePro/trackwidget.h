@@ -104,6 +104,8 @@ private slots:
     void onPauseBlink();
     void onChooseColorTag();
     void onInfoClicked();
+	    void onTimeLabelTick();
+
 
 private:
     void initUI();
@@ -200,6 +202,7 @@ private:
     // Pause blinking
     QTimer pauseBlinkTimer;
     bool pauseBlinkOn = false;
+    QTimer m_timeLabelTimer;   // NEW
 
     // Drag & Drop
     bool dragFromHandle = false;

@@ -880,9 +880,11 @@ void MainWindow::onSpotifyTrackDuration(const QString &uri, qint64 durationMs)
     if (!tw)
         return;
 
-    tw->updateSpotifyPlayback(-1, durationMs, !tw->isPaused());
+    bool stillPlaying = tw->isPlaying();          // NEW
+    tw->updateSpotifyPlayback(-1, durationMs, stillPlaying);
     updateLiveTimeline();
 }
+
 
 void MainWindow::requestSpotifyMetadata(TrackWidget *tw)
 {
