@@ -1997,17 +1997,52 @@ void MainWindow::onLiveTrackActivated(TrackWidget *tw)
         sceneList->setCurrentRow(sceneIdx);
     }
 
+    // Rebuild the UI for that scene so track widgets line up with the data
     rebuildTrackList();
     updateSceneHighlighting();
     rebuildFragmentTree();
 
-    // Use your existing logic for starting a track (handles fade-out, toggling etc.)
-    onTrackPlayRequested(tw);
+    Scene &scene = scenes[sceneIdx];
+    const int idx = scene.tracks.indexOf(tw);
+    if (idx < 0)
+        return;
 
-    // Scene tree text (hotkeys etc.) may have changed; keep Live View synced
+    // The next cue after a double‑clicked track is simply the following track
+    liveNextCueIndexHint = (idx + 1 < scene.tracks.size()) ? idx + 1 : 0;
+
+    // In Live mode, a double‑click should always start this cue from its
+    // configured in‑point, not resume from wherever it was paused.
+    if (currentTrack && currentTrack != tw)
+    {
+        // If the target cue was previously paused, clear its paused position
+        // so it restarts from the top.
+        if (tw->isPaused())
+            tw->stopImmediately();
+
+        // Fade out whatever is currently playing, then start this cue
+        startTrackAfterFade(tw);
+    }
+    else
+    {
+        // Either nothing is playing yet, or this is the same track.
+        // Restart from the top instead of toggling play/pause.
+        if (currentTrack == tw)
+            currentTrack->stopImmediately();
+
+        currentTrack = tw;
+        currentTrack->playFromUI();
+
+        // For non‑Spotify tracks, make sure Spotify polling is stopped
+        if (!currentTrack->isSpotify())
+            stopSpotifyPolling();
+
+        updateLiveTimeline();
+    }
+
+    // Keep Live Mode tree in sync (colors, labels, etc.)
     updateLiveSceneTree();
-    // updateLiveTimeline() is already called in onTrackPlayRequested()
 }
+
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
