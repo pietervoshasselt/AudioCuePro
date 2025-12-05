@@ -199,9 +199,14 @@ void LiveModeWindow::buildUi()
     nextTitleLabel->setStyleSheet("font-size: 16px; font-weight: 500;");
     nextHotkeyLabel = new QLabel(tr(""), nextCard);
     nextHotkeyLabel->setStyleSheet("font-size: 13px; color: #bbbbbb;");
+    nextNotesLabel = new QLabel(tr(""), nextCard);
+    nextNotesLabel->setWordWrap(true);
+    nextNotesLabel->setStyleSheet("font-size: 18px; font-weight: 600; color: #e0e0e0;");
+    nextNotesLabel->setVisible(false);
 
     nextLayout->addWidget(nextTitleLabel);
     nextLayout->addWidget(nextHotkeyLabel);
+    nextLayout->addWidget(nextNotesLabel);
 
     // GO + transport buttons
     goButton = new QPushButton(tr("GO"), centerPanel);
@@ -470,10 +475,26 @@ void LiveModeWindow::setCurrentCueDisplay(const QString &title,
     currentSmallTimeLabel->setText(smallTime);
 }
 
-void LiveModeWindow::setNextCueDisplay(const QString &title, const QString &hotkeyLabel)
+void LiveModeWindow::setNextCueDisplay(const QString &title,
+                                       const QString &hotkeyLabel,
+                                       const QString &notesText)
 {
     nextTitleLabel->setText(title.isEmpty() ? tr("—") : title);
     nextHotkeyLabel->setText(hotkeyLabel);
+
+    if (nextNotesLabel)
+    {
+        if (notesText.trimmed().isEmpty())
+        {
+            nextNotesLabel->clear();
+            nextNotesLabel->setVisible(false);
+        }
+        else
+        {
+            nextNotesLabel->setText(notesText);
+            nextNotesLabel->setVisible(true);
+        }
+    }
 }
 
 void LiveModeWindow::setTrackState(TrackWidget *tw, const QString &state)

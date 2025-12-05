@@ -36,7 +36,9 @@ public:
                               const QString &smallTime);
 
     // Next cue box
-    void setNextCueDisplay(const QString &title, const QString &hotkeyLabel);
+    void setNextCueDisplay(const QString &title,
+                           const QString &hotkeyLabel,
+                           const QString &notesText);
 
     // Color track in the live tree
     void setTrackState(TrackWidget *tw, const QString &state); // "playing", "paused", "stopped"
@@ -69,6 +71,7 @@ private:
 
     QLabel *nextTitleLabel = nullptr;
     QLabel *nextHotkeyLabel = nullptr;
+    QLabel *nextNotesLabel = nullptr;
 
     QPushButton *goButton = nullptr;
     QPushButton *pauseButton = nullptr;

@@ -728,6 +728,7 @@ void MainWindow::onSceneSelectionChanged(int row)
     stopCurrentTrackImmediately();
 
     currentSceneIndex = row;
+    liveNextCueIndexHint = 0;
     rebuildTrackList();
     updateSceneHighlighting();
     rebuildFragmentTree();
@@ -793,6 +794,9 @@ void MainWindow::onSpotifyPlayRequested(TrackWidget *tw,
 {
     if (!m_spotifyClient)
         return;
+
+    // Stop anything that might still be playing before starting a new Spotify track.
+    m_spotifyClient->pausePlayback();
 
     if (tw)
         tw->updateSpotifyPlayback(positionMs, tw->spotifyDurationMs(), true);
@@ -947,6 +951,9 @@ void MainWindow::onTrackPlayRequested(TrackWidget *tw)
     {
         currentTrack = tw;
         tw->playFromUI();
+        int idx = currentScene().tracks.indexOf(tw);
+        if (idx >= 0)
+            liveNextCueIndexHint = (idx + 1 < currentScene().tracks.size()) ? idx + 1 : 0;
         updateLiveTimeline();
         if (!tw->isSpotify())
             stopSpotifyPolling();
@@ -976,6 +983,7 @@ void MainWindow::onTrackPlayRequested(TrackWidget *tw)
     }
 
     // Different track -> fade out current, then start new one
+    liveNextCueIndexHint = currentScene().tracks.indexOf(tw);
     startTrackAfterFade(tw);
 }
 
@@ -1045,6 +1053,12 @@ void MainWindow::onTrackStopRequested(TrackWidget *tw)
         tw->stopWithFade();
         currentTrack = nullptr;
         stopSpotifyPolling();
+        if (tw && currentScene().tracks.contains(tw))
+        {
+            int idx = currentScene().tracks.indexOf(tw);
+            int count = currentScene().tracks.size();
+            liveNextCueIndexHint = count > 0 ? qMin(idx + 1, count - 1) : 0;
+        }
         updateLiveTimeline();
     }
 }
@@ -1736,6 +1750,7 @@ void MainWindow::clearAllScenes()
 
     scenes.clear();
     sceneList->clear();
+    liveNextCueIndexHint = 0;
     // IMPORTANT: do NOT call ensureAtLeastOneScene() here
 }
 
@@ -2037,6 +2052,8 @@ void MainWindow::stopCurrentTrackImmediately()
         currentTrack->stopImmediately();
         currentTrack = nullptr;
         pendingTrackAfterFade = nullptr;
+        int count = currentScene().tracks.size();
+        liveNextCueIndexHint = count > 0 ? qMin(liveNextCueIndexHint, count - 1) : 0;
         stopSpotifyPolling();
         updateLiveTimeline();
     }
@@ -2236,6 +2253,7 @@ void MainWindow::updateLiveTimeline()
     QString smallTime;
     QString nextTitle;
     QString nextHotkey;
+    QString nextNotes;
 
     Scene &scene = currentScene();
     int n = scene.tracks.size();
@@ -2279,18 +2297,26 @@ void MainWindow::updateLiveTimeline()
             QString hk = next->assignedKey().trimmed();
             if (!hk.isEmpty())
                 nextHotkey = tr("Hotkey: %1").arg(hk);
+
+            nextNotes = next->notesText().trimmed();
+            liveNextCueIndexHint = curIdx + 1;
+        }
+        else
+        {
+            liveNextCueIndexHint = 0; // wrap to start after last
         }
     }
     else
     {
-        // No active cue – show first as "next"
+        // No active cue - show hinted next (or first)
         status = tr("READY");
         bigTime = QStringLiteral("--:--");
         smallTime.clear();
 
+        int idx = (liveNextCueIndexHint >= 0 && liveNextCueIndexHint < n) ? liveNextCueIndexHint : 0;
         if (n > 0)
         {
-            TrackWidget *next = scene.tracks.first();
+            TrackWidget *next = scene.tracks[idx];
             QString nl = next->altName().trimmed();
             if (nl.isEmpty())
                 nl = QFileInfo(next->audioPath()).fileName();
@@ -2299,11 +2325,13 @@ void MainWindow::updateLiveTimeline()
             QString hk = next->assignedKey().trimmed();
             if (!hk.isEmpty())
                 nextHotkey = tr("Hotkey: %1").arg(hk);
+
+            nextNotes = next->notesText().trimmed();
         }
     }
 
     liveModeWindow->setCurrentCueDisplay(curTitle, status, bigTime, smallTime);
-    liveModeWindow->setNextCueDisplay(nextTitle, nextHotkey);
+    liveModeWindow->setNextCueDisplay(nextTitle, nextHotkey, nextNotes);
 }
 
 void MainWindow::onLiveGoRequested()
@@ -2316,7 +2344,18 @@ void MainWindow::onLiveGoRequested()
     if (currentTrack)
         idx = scene.tracks.indexOf(currentTrack);
 
-    int nextIdx = (idx + 1 < scene.tracks.size()) ? idx + 1 : 0;
+    int nextIdx = 0;
+    if (currentTrack)
+    {
+        nextIdx = (idx + 1 < scene.tracks.size()) ? idx + 1 : 0;
+    }
+    else
+    {
+        nextIdx = (liveNextCueIndexHint >= 0 && liveNextCueIndexHint < scene.tracks.size())
+                  ? liveNextCueIndexHint
+                  : 0;
+    }
+
     TrackWidget *next = scene.tracks[nextIdx];
     if (next)
         onTrackPlayRequested(next);
@@ -2332,6 +2371,7 @@ void MainWindow::onLiveStopRequested()
 {
     if (currentTrack)
         onTrackStopRequested(currentTrack);
+    // Do not reset liveNextCueIndexHint so next cue stays put.
 }
 
 void MainWindow::onLiveSceneActivated(int index)

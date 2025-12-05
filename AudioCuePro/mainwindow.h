@@ -163,6 +163,7 @@ private:
     TrackWidget *currentTrack = nullptr;
     TrackWidget *pendingTrackAfterFade = nullptr;
     QTimer *spotifyPollTimer = nullptr;
+    int liveNextCueIndexHint = 0;
 
     // Loading support
     QString lastAudioFolder;

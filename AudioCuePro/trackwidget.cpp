@@ -1277,6 +1277,11 @@ QString TrackWidget::altName() const
     return altNameEdit->text();
 }
 
+QString TrackWidget::notesText() const
+{
+    return notesEdit ? notesEdit->toPlainText() : QString();
+}
+
 QString TrackWidget::spotifyUri() const
 {
     return m_spotifyUrl;
@@ -1370,4 +1375,3 @@ bool TrackWidget::isPlaying() const
     return m_player &&
            m_player->playbackState() == QMediaPlayer::PlayingState;
 }
-

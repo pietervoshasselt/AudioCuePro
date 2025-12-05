@@ -41,6 +41,7 @@ public:
 
     QString audioPath() const { return m_audioPath; }
     QString altName() const;
+    QString notesText() const;
     bool isSpotify() const { return m_isSpotify; }
     QString spotifyUri() const;
 	bool isPaused() const;      // <-- add this

@@ -65,8 +65,7 @@ void SpotifyClient::playTrack(const QString &spotifyUri, qint64 positionMs)
     uris.append(spotifyUri);
     body.insert(QStringLiteral("uris"), uris);
 
-    if (positionMs > 0)
-        body.insert(QStringLiteral("position_ms"), static_cast<int>(positionMs));
+    body.insert(QStringLiteral("position_ms"), static_cast<int>(qMax<qint64>(0, positionMs)));
 
     QJsonDocument doc(body);
 
