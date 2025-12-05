@@ -44,7 +44,8 @@ public:
     void setTrackState(TrackWidget *tw, const QString &state); // "playing", "paused", "stopped"
 
 signals:
-    void goRequested();          // big GO button
+    void goRequested();          // big PLAY NEXT button
+    void resumeRequested();      // new: resume currently paused track
     void pauseRequested();       // live Pause
     void stopRequested();        // live Stop
     void panicRequested();       // live PANIC
@@ -74,6 +75,7 @@ private:
     QLabel *nextNotesLabel = nullptr;
 
     QPushButton *goButton = nullptr;
+    QPushButton *playButton = nullptr;   // NEW
     QPushButton *pauseButton = nullptr;
     QPushButton *stopButton = nullptr;
     QPushButton *panicButton = nullptr;

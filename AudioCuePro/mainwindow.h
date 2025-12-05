@@ -104,6 +104,7 @@ private slots:
 	    // Live mode
     void onLiveModeButtonClicked();
     void onLiveGoRequested();
+	void onLiveResumeRequested();               // NEW
     void onLivePauseRequested();
     void onLiveStopRequested();
     void onLiveSceneActivated(int index);

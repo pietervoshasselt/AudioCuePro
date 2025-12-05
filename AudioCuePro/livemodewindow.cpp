@@ -209,7 +209,7 @@ void LiveModeWindow::buildUi()
     nextLayout->addWidget(nextNotesLabel);
 
     // GO + transport buttons
-    goButton = new QPushButton(tr("GO"), centerPanel);
+    goButton = new QPushButton(tr("PLAY NEXT"), centerPanel);
     goButton->setMinimumHeight(80);
     goButton->setObjectName("goButton");
 
@@ -217,7 +217,11 @@ void LiveModeWindow::buildUi()
     transportRow->setSpacing(8);
 
     // Use same icons as TrackWidget (pause.png / stop.png) and make them big
-    pauseButton = makeTransportIconButton("pause.png",
+       playButton = makeTransportIconButton("play.png",
+                                         tr("Play"),
+                                         tr("Resume current cue"),
+                                         centerPanel);
+   pauseButton = makeTransportIconButton("pause.png",
                                           tr("Pause"),
                                           tr("Pause current cue"),
                                           centerPanel);
@@ -231,6 +235,7 @@ void LiveModeWindow::buildUi()
     panicButton->setObjectName("panicButtonLive");
     panicButton->setMinimumHeight(64);  // make PANIC big too
 
+    transportRow->addWidget(playButton);
     transportRow->addWidget(pauseButton);
     transportRow->addWidget(stopButton);
     transportRow->addWidget(panicButton);
@@ -272,14 +277,17 @@ void LiveModeWindow::buildUi()
     connect(exitButton, &QPushButton::clicked,
             this, [this]() { emit exitRequested(); close(); });
 
-    connect(goButton, &QPushButton::clicked,
-            this, &LiveModeWindow::goRequested);
+    connect(goButton,  &QPushButton::clicked,
+            this,      &LiveModeWindow::goRequested);
+    connect(playButton, &QPushButton::clicked,
+            this,       &LiveModeWindow::resumeRequested);   // NEW
     connect(pauseButton, &QPushButton::clicked,
-            this, &LiveModeWindow::pauseRequested);
+            this,        &LiveModeWindow::pauseRequested);
     connect(stopButton, &QPushButton::clicked,
-            this, &LiveModeWindow::stopRequested);
+            this,       &LiveModeWindow::stopRequested);
     connect(panicButton, &QPushButton::clicked,
-            this, &LiveModeWindow::panicRequested);
+            this,        &LiveModeWindow::panicRequested);
+
 
     connect(sceneTree, &QTreeWidget::currentItemChanged,
             this, [this](QTreeWidgetItem *current, QTreeWidgetItem *) {

@@ -2108,6 +2108,8 @@ void MainWindow::ensureLiveModeWindow()
 
     connect(liveModeWindow, &LiveModeWindow::goRequested,
             this, &MainWindow::onLiveGoRequested);
+    connect(liveModeWindow, &LiveModeWindow::resumeRequested,
+            this, &MainWindow::onLiveResumeRequested);   // NEW
     connect(liveModeWindow, &LiveModeWindow::pauseRequested,
             this, &MainWindow::onLivePauseRequested);
     connect(liveModeWindow, &LiveModeWindow::stopRequested,
@@ -2372,6 +2374,22 @@ void MainWindow::onLiveGoRequested()
     TrackWidget *next = scene.tracks[nextIdx];
     if (next)
         onTrackPlayRequested(next);
+}
+void MainWindow::onLiveResumeRequested()
+{
+    // Only resume if there is a current track and it is paused
+    if (!currentTrack)
+        return;
+
+    if (currentTrack->isPaused())
+    {
+        currentTrack->playFromUI();     // resumes both local and Spotify tracks
+        updateLiveTimeline();
+
+        // If we’re resuming a non-Spotify track, make sure Spotify polling is off
+        if (!currentTrack->isSpotify())
+            stopSpotifyPolling();
+    }
 }
 
 void MainWindow::onLivePauseRequested()
