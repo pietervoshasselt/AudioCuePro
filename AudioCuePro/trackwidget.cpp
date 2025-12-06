@@ -1192,16 +1192,14 @@ void TrackWidget::updateSpotifyPlayback(qint64 positionMs,
             m_spotifyPositionMs = m_spotifyDurationMs;
     }
 
+    // Keep flags in sync with Spotify,
+    // but do NOT touch m_timeLabelTimer here.
     m_spotifyPaused  = !isPlaying;
     m_spotifyPlaying = isPlaying;
 
-    if (m_spotifyPlaying)
-        m_timeLabelTimer.start();
-    else
-        m_timeLabelTimer.stop();
-
     updateTimeLabels();
 }
+
 
 // ============================================================
 // COLOR TAG PICKER

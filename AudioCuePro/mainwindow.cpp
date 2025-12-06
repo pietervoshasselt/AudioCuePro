@@ -436,16 +436,20 @@ m_spotifyAuth->setClientId("7e9997c47b094a138dcb965e40c5d63c");
     if (!savedAccess.isEmpty())
         m_spotifyClient->setAccessToken(savedAccess);
 
-    spotifyPollTimer = new QTimer(this);
-    spotifyPollTimer->setInterval(1000);
-    connect(spotifyPollTimer, &QTimer::timeout, this, [this]() {
-        if (!currentTrack || !currentTrack->isSpotify()) {
-            stopSpotifyPolling();
-            return;
-        }
-        if (m_spotifyClient)
-            m_spotifyClient->fetchCurrentPlayback();
-    });
+	spotifyPollTimer = new QTimer(this);
+	spotifyPollTimer->setInterval(1000);
+	connect(spotifyPollTimer, &QTimer::timeout, this, [this]() {
+		// If we don't have a client, just stop polling.
+		if (!m_spotifyClient) {
+			stopSpotifyPolling();
+			return;
+		}
+
+		// Just ask Spotify what is currently playing; we'll map the URI back
+		// to the correct TrackWidget in onSpotifyPlaybackState().
+		m_spotifyClient->fetchCurrentPlayback();
+	});
+
 
     // connect auth manager signals
     connect(m_spotifyAuth, &SpotifyAuthManager::authSucceeded,
@@ -1062,20 +1066,23 @@ void MainWindow::onTrackFadeOutFinished()
 void MainWindow::onTrackStopRequested(TrackWidget *tw)
 {
     if (currentTrack == tw)
-    {
+     {
+        // Fade out + stop the track, but keep currentTrack pointing to it
+        // so the Now Playing card still shows this cue.
         tw->stopWithFade();
-        currentTrack = nullptr;
+
         stopSpotifyPolling();
+
         if (tw && currentScene().tracks.contains(tw))
         {
-            int idx = currentScene().tracks.indexOf(tw);
+            int idx   = currentScene().tracks.indexOf(tw);
             int count = currentScene().tracks.size();
             liveNextCueIndexHint = count > 0 ? qMin(idx + 1, count - 1) : 0;
         }
+
         updateLiveTimeline();
     }
 }
-
 /* ============================================================
  * PER-TRACK DELETE REQUESTED
  * ============================================================ */
@@ -2072,11 +2079,14 @@ void MainWindow::onLiveCueSelectionChanged(TrackWidget *tw)
     }
 
     if (sceneIdx < 0 || trackIdx < 0)
+    {
+        updateLiveTimeline();
         return;
+    }
 
-    // Only move the "current scene" focus when nothing is playing,
-    // so we don't disrupt an active cue.
-    if (!currentTrack)
+    // Only move the "current scene" focus when nothing is actively playing.
+    const bool somethingPlaying = currentTrack && currentTrack->isPlaying();
+     if (!somethingPlaying)
     {
         currentSceneIndex = sceneIdx;
         if (sceneList)
@@ -2091,8 +2101,14 @@ void MainWindow::onLiveCueSelectionChanged(TrackWidget *tw)
         liveNextCueIndexHint = after;
 
         updateLiveSceneTree();
-        updateLiveTimeline();
+
+        // *** NEW: make this dropdown selection the current cue
+        //          when nothing is playing anymore. ***
+        currentTrack = tw;
     }
+
+    // Always refresh the timeline (so dropdown selection is reflected)
+    updateLiveTimeline();
 }
 
 
@@ -2370,12 +2386,20 @@ void MainWindow::updateLiveTimeline()
     {
         TrackWidget *tw = scene.tracks[curIdx];
 
-        QString label = tw->altName().trimmed();
-        if (label.isEmpty())
-            label = QFileInfo(tw->audioPath()).fileName();
+	QString label = tw->altName().trimmed();
+	if (label.isEmpty())
+		label = QFileInfo(tw->audioPath()).fileName();
 
-        curTitle = label;
-        status = tr("PLAYING");
+	curTitle = label;
+
+	// Decide status based on actual playback state
+	if (tw->isPlaying())
+		status = tr("PLAYING");
+	else if (tw->isPaused())
+		status = tr("PAUSED");
+	else
+		status = tr("STOPPED");
+
 
         double start = tw->startSeconds();
         double end   = tw->endSeconds();
@@ -2523,21 +2547,12 @@ void MainWindow::onLiveGoRequested()
 }
 void MainWindow::onLivePlayRequested()
 {
-    // 1) If something is already active, reuse the normal track logic:
-    //    - if paused → resume
-    //    - if playing → toggle stop (same as per-track Play button behaviour)
-    if (currentTrack)
-    {
-        onTrackPlayRequested(currentTrack);
-        return;
-    }
-
-    // 2) If nothing is playing and we have a cue selected from the dropdown,
-    //    start that cue at its configured start position (one-shot).
-    if (liveSelectedCue)
+    // 1) If the user picked a cue in the dropdown and nothing is playing yet:
+    if (liveSelectedCue && !currentTrack)
     {
         TrackWidget *tw = liveSelectedCue;
 
+        // Find the scene that owns this track
         int sceneIdx = -1;
         for (int i = 0; i < scenes.size(); ++i)
         {
@@ -2556,69 +2571,50 @@ void MainWindow::onLivePlayRequested()
                 QSignalBlocker blocker(sceneList);
                 sceneList->setCurrentRow(sceneIdx);
             }
+
+            int idx   = scenes[sceneIdx].tracks.indexOf(tw);
+            int count = scenes[sceneIdx].tracks.size();
+            if (idx >= 0)
+                liveNextCueIndexHint = (idx + 1 < count) ? idx + 1 : idx;
+
             updateLiveSceneTree();
         }
 
-        // One‑shot: once we start this manually selected cue,
-        // go back to "Current cue" behaviour.
+        currentTrack   = tw;
         liveSelectedCue = nullptr;
 
-        onTrackPlayRequested(tw);
-        return;
-    }
+        currentTrack->playFromUI();
 
-    // 3) If we previously stopped a cue via Live Stop, restart THAT cue
-    //    instead of jumping to the next one.
-    if (liveLastStoppedTrack)
-    {
-        TrackWidget *tw = liveLastStoppedTrack;
-        liveLastStoppedTrack = nullptr;   // consume it
-
-        // Make sure currentSceneIndex points to the scene that owns this track
-        int sceneIdx = -1;
-        for (int i = 0; i < scenes.size(); ++i)
-        {
-            if (scenes[i].tracks.contains(tw))
-            {
-                sceneIdx = i;
-                break;
-            }
-        }
-
-        if (sceneIdx >= 0)
-        {
-            currentSceneIndex = sceneIdx;
-            if (sceneList)
-            {
-                QSignalBlocker blocker(sceneList);
-                sceneList->setCurrentRow(sceneIdx);
-            }
-            updateLiveSceneTree();
-        }
-
-        onTrackPlayRequested(tw);
-        return;
-    }
-
-    // 4) Fallback: behave like GO (play the hinted next cue in current scene)
-    onLiveGoRequested();
-}
-
-void MainWindow::onLiveResumeRequested()
-{
-    // Only resume if there is a current track and it is paused
-    if (!currentTrack)
-        return;
-
-    if (currentTrack->isPaused())
-    {
-        currentTrack->playFromUI();     // resumes both local and Spotify tracks
-        updateLiveTimeline();
-
-        // If we’re resuming a non-Spotify track, make sure Spotify polling is off
+        // Non-Spotify → stop any Spotify polling
         if (!currentTrack->isSpotify())
             stopSpotifyPolling();
+
+        updateLiveTimeline();
+        return;
     }
+
+    // 2) We already have a current track
+    if (currentTrack)
+    {
+        // If it’s paused or fully stopped → resume / restart the same cue
+        if (currentTrack->isPaused() || !currentTrack->isPlaying())
+        {
+            currentTrack->playFromUI();
+
+            if (!currentTrack->isSpotify())
+                stopSpotifyPolling();
+
+            updateLiveTimeline();
+        }
+
+        // If it’s already playing, do NOTHING.
+        // In Live mode the Play button is no longer a toggle,
+        // so we avoid the complex cross-fade path that could crash.
+        return;
+    }
+
+    // 3) No currentTrack and no dropdown selection → behave like GO
+    onLiveGoRequested();
 }
 
 void MainWindow::onLivePauseRequested()
@@ -2629,12 +2625,23 @@ void MainWindow::onLivePauseRequested()
 
 void MainWindow::onLiveStopRequested()
 {
-    if (currentTrack)
-		// Remember which cue was stopped by the Live Stop button
-		liveLastStoppedTrack = currentTrack;
-        onTrackStopRequested(currentTrack);
-    // Do not reset liveNextCueIndexHint so next cue stays put.
+    if (!currentTrack)
+        return;
+
+    TrackWidget *tw = currentTrack;
+
+    // Stop the audio but do NOT clear currentTrack:
+    // we want the cue to remain visible in "Now playing"
+    if (tw->isSpotify())
+        onSpotifyStopRequested(tw);
+    else
+        tw->stopWithFade();
+
+    stopSpotifyPolling();
+    updateLiveTimeline();
 }
+
+
 
 void MainWindow::onLiveSceneActivated(int index)
 {
