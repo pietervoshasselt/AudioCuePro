@@ -9,6 +9,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QLabel;
 class QPushButton;
+class QComboBox;      // NEW
 class TrackWidget;
 
 // Dark-stage live view inspired by the mockup image.
@@ -54,6 +55,7 @@ signals:
    // Emitted after the user has reordered/moved tracks in the live tree
    void treeOrderChanged();
        void trackActivated(TrackWidget *tw);
+    void cueSelectionChanged(TrackWidget *tw); // NEW: dropdown cue changed
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;   // <--- add this
@@ -80,6 +82,10 @@ private:
     QPushButton *stopButton = nullptr;
     QPushButton *panicButton = nullptr;
     QPushButton *exitButton = nullptr;
+	
+	QComboBox *cueCombo = nullptr;         // NEW: cue dropdown
+    QList<TrackWidget*> cueTrackList;      // NEW: index → TrackWidget*
+    bool cueComboUpdating = false;         // NEW: guard against recursion
 
     // Map TrackWidget* → QTreeWidgetItem* in live tree
     QHash<TrackWidget*, QTreeWidgetItem*> trackItemMap;

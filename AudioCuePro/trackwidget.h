@@ -53,6 +53,8 @@ public:
 	    // Timing helpers for Live Mode
     double startSeconds() const;
     double endSeconds() const;
+	double durationSeconds() const;        // <<< add this
+
     double currentPositionSeconds() const;
 
     bool detailsVisible() const;

@@ -17,6 +17,7 @@
 #include <QtGlobal>
 #include <QEvent>
 #include <QMetaObject>
+#include <QComboBox>      // NEW
 
 
 // Helper: big transport buttons in Live Mode
@@ -157,8 +158,14 @@ void LiveModeWindow::buildUi()
     centerLayout->setContentsMargins(0, 0, 0, 0);
     centerLayout->setSpacing(12);
 
-    QLabel *timelineLabel = new QLabel(tr("CUE TIMELINE"), centerPanel);
+	    QLabel *timelineLabel = new QLabel(tr("CUE TIMELINE"), centerPanel);
     timelineLabel->setStyleSheet("font-size: 13px; letter-spacing: 2px;");
+
+    // Cue dropdown (select the current cue across all scenes)  // NEW
+    cueCombo = new QComboBox(centerPanel);
+    cueCombo->setMinimumWidth(260);
+    cueCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+    cueCombo->setToolTip(tr("Select which cue should be treated as the current cue"));
 
     // Current cue card
     QWidget *currentCard = new QWidget(centerPanel);
@@ -219,7 +226,7 @@ void LiveModeWindow::buildUi()
     // Use same icons as TrackWidget (pause.png / stop.png) and make them big
        playButton = makeTransportIconButton("play.png",
                                          tr("Play"),
-                                         tr("Resume current cue"),
+                                         tr("Play selected cue / Resume current cue"),
                                          centerPanel);
    pauseButton = makeTransportIconButton("pause.png",
                                           tr("Pause"),
@@ -241,6 +248,7 @@ void LiveModeWindow::buildUi()
     transportRow->addWidget(panicButton);
 
     centerLayout->addWidget(timelineLabel);
+    centerLayout->addWidget(cueCombo);    // NEW
     centerLayout->addWidget(currentCard);
     centerLayout->addSpacing(8);
     centerLayout->addWidget(nextLabel);
@@ -287,7 +295,18 @@ void LiveModeWindow::buildUi()
             this,       &LiveModeWindow::stopRequested);
     connect(panicButton, &QPushButton::clicked,
             this,        &LiveModeWindow::panicRequested);
-
+    connect(cueCombo,
+            QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this,
+            [this](int index) {
+                if (cueComboUpdating)
+                    return;
+                if (index < 0 || index >= cueTrackList.size())
+                    return;
+                TrackWidget *tw = cueTrackList.at(index);
+                if (tw)
+                    emit cueSelectionChanged(tw);     // NEW
+            });
 
     connect(sceneTree, &QTreeWidget::currentItemChanged,
             this, [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
@@ -389,6 +408,12 @@ void LiveModeWindow::setSceneTree(const QList<SceneEntry> &scenes, int currentSc
     trackItemMap.clear();
     sceneTree->clear();
 
+    // NEW: rebuild cue dropdown
+    cueComboUpdating = true;
+    cueTrackList.clear();
+    if (cueCombo)
+        cueCombo->clear();
+	
     for (int i = 0; i < scenes.size(); ++i)
     {
         const SceneEntry &se = scenes[i];
@@ -421,6 +446,15 @@ void LiveModeWindow::setSceneTree(const QList<SceneEntry> &scenes, int currentSc
             cflags |= Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled;
             cflags &= ~Qt::ItemIsDropEnabled;
             child->setFlags(cflags);
+			  // NEW: add to cue dropdown
+            cueTrackList.append(tw);
+            if (cueCombo)
+            {
+                QString comboText = se.name.isEmpty()
+                    ? label
+                    : QStringLiteral("%1 – %2").arg(se.name, label);
+                cueCombo->addItem(comboText);
+            }
  
             // Store TrackWidget* so we can rebuild the scene model
             child->setData(0, Qt::UserRole,
@@ -431,6 +465,16 @@ void LiveModeWindow::setSceneTree(const QList<SceneEntry> &scenes, int currentSc
     }
 
     sceneTree->expandAll();
+	    // Finalize dropdown state                                    // NEW
+    if (cueCombo)
+    {
+        cueCombo->setEnabled(!cueTrackList.isEmpty());
+        if (cueTrackList.isEmpty())
+            cueCombo->setCurrentIndex(-1);
+        else
+            cueCombo->setCurrentIndex(0);
+    }
+    cueComboUpdating = false;
     m_syncingTree = false;
 
 }

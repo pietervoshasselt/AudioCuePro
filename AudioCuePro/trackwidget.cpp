@@ -1311,6 +1311,31 @@ double TrackWidget::endSeconds() const
 {
     return endSpin ? endSpin->value() : 0.0;
 }
+double TrackWidget::durationSeconds() const
+{
+    // Prefer the configured region (end - start) when possible
+    double startSec = startSeconds();
+    double endSec   = endSeconds();
+
+    if (endSec > startSec)
+        return endSec - startSec;
+
+    // Fallback: full track duration
+    if (m_isSpotify)
+    {
+        return (m_spotifyDurationMs > 0)
+               ? (m_spotifyDurationMs / 1000.0)
+               : 0.0;
+    }
+
+    if (m_player)
+    {
+        qint64 d = m_player->duration(); // ms
+        return (d > 0) ? (d / 1000.0) : 0.0;
+    }
+
+    return 0.0;
+}
 
 double TrackWidget::currentPositionSeconds() const
 {

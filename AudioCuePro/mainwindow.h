@@ -104,6 +104,7 @@ private slots:
 	    // Live mode
     void onLiveModeButtonClicked();
     void onLiveGoRequested();
+	void onLivePlayRequested();        // <<< add this
 	void onLiveResumeRequested();               // NEW
     void onLivePauseRequested();
     void onLiveStopRequested();
@@ -111,6 +112,7 @@ private slots:
     void onLiveExitRequested();
 	void onLiveTreeOrderChanged();
 	void onLiveTrackActivated(TrackWidget *tw); // NEW
+    void onLiveCueSelectionChanged(TrackWidget *tw); // NEW
 
     void onSpotifyPlaybackState(const QString &uri,
                                 qint64 positionMs,
@@ -165,6 +167,7 @@ private:
     TrackWidget *pendingTrackAfterFade = nullptr;
     QTimer *spotifyPollTimer = nullptr;
     int liveNextCueIndexHint = 0;
+    TrackWidget *liveSelectedCue = nullptr;     // NEW: cue chosen in Live Mode dropdown
 
     // Loading support
     QString lastAudioFolder;

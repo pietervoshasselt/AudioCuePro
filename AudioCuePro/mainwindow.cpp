@@ -2043,6 +2043,51 @@ void MainWindow::onLiveTrackActivated(TrackWidget *tw)
     updateLiveSceneTree();
 }
 
+void MainWindow::onLiveCueSelectionChanged(TrackWidget *tw)
+{
+    if (!tw)
+        return;
+
+    liveSelectedCue = tw;
+
+    // Find which scene and index this cue belongs to
+    int sceneIdx = -1;
+    int trackIdx = -1;
+
+    for (int i = 0; i < scenes.size(); ++i)
+    {
+        int idx = scenes[i].tracks.indexOf(tw);
+        if (idx >= 0)
+        {
+            sceneIdx = i;
+            trackIdx = idx;
+            break;
+        }
+    }
+
+    if (sceneIdx < 0 || trackIdx < 0)
+        return;
+
+    // Only move the "current scene" focus when nothing is playing,
+    // so we don't disrupt an active cue.
+    if (!currentTrack)
+    {
+        currentSceneIndex = sceneIdx;
+        if (sceneList)
+        {
+            QSignalBlocker blocker(sceneList);
+            sceneList->setCurrentRow(sceneIdx);
+        }
+
+        // "Next cue" should be the one normally after the selected cue.
+        int count = scenes[sceneIdx].tracks.size();
+        int after = (trackIdx + 1 < count) ? trackIdx + 1 : trackIdx;
+        liveNextCueIndexHint = after;
+
+        updateLiveSceneTree();
+        updateLiveTimeline();
+    }
+}
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
@@ -2143,8 +2188,8 @@ void MainWindow::ensureLiveModeWindow()
 
     connect(liveModeWindow, &LiveModeWindow::goRequested,
             this, &MainWindow::onLiveGoRequested);
-    connect(liveModeWindow, &LiveModeWindow::resumeRequested,
-            this, &MainWindow::onLiveResumeRequested);   // NEW
+	connect(liveModeWindow, &LiveModeWindow::resumeRequested,
+			this, &MainWindow::onLivePlayRequested);   // NEW
     connect(liveModeWindow, &LiveModeWindow::pauseRequested,
             this, &MainWindow::onLivePauseRequested);
     connect(liveModeWindow, &LiveModeWindow::stopRequested,
@@ -2159,7 +2204,9 @@ void MainWindow::ensureLiveModeWindow()
             this, &MainWindow::onLiveTreeOrderChanged);
 	connect(liveModeWindow, &LiveModeWindow::trackActivated,
             this, &MainWindow::onLiveTrackActivated);
-
+    // NEW:
+    connect(liveModeWindow, &LiveModeWindow::cueSelectionChanged,
+            this, &MainWindow::onLiveCueSelectionChanged);
     updateLiveSceneTree();
     updateLiveTimeline();
 }
@@ -2358,27 +2405,84 @@ void MainWindow::updateLiveTimeline()
     }
     else
     {
-        // No active cue - show hinted next (or first)
+        // No active cue
         status = tr("READY");
         bigTime = QStringLiteral("--:--");
         smallTime.clear();
 
-        int idx = (liveNextCueIndexHint >= 0 && liveNextCueIndexHint < n) ? liveNextCueIndexHint : 0;
-        if (n > 0)
+        TrackWidget *selected = nullptr;
+        if (liveSelectedCue && scene.tracks.contains(liveSelectedCue))
+            selected = liveSelectedCue;
+
+        if (selected)
         {
-            TrackWidget *next = scene.tracks[idx];
-            QString nl = next->altName().trimmed();
-            if (nl.isEmpty())
-                nl = QFileInfo(next->audioPath()).fileName();
-            nextTitle = nl;
+            const int selIdx = scene.tracks.indexOf(selected);
 
-            QString hk = next->assignedKey().trimmed();
-            if (!hk.isEmpty())
-                nextHotkey = tr("Hotkey: %1").arg(hk);
+            QString label = selected->altName().trimmed();
+            if (label.isEmpty())
+                label = QFileInfo(selected->audioPath()).fileName();
 
-            nextNotes = next->notesText().trimmed();
+            // Show the selected cue in the "Now playing" field (as READY)
+            curTitle = label;
+
+            double start = selected->startSeconds();
+            double end   = selected->endSeconds();
+            double dur   = 0.0;
+
+            if (end > 0.0 && end > start)
+                dur = end - start;
+            else if (selected->durationSeconds() > 0.0)
+                dur = qMax(0.0, selected->durationSeconds() - start);
+
+            if (dur > 0.0)
+                smallTime = tr("from %1 for %2")
+                                .arg(fmtTime(start))
+                                .arg(fmtTime(dur));
+
+            // "Next cue" is normally the one after the selected one in this scene
+            const int nextIdx = (selIdx + 1 < n) ? selIdx + 1 : selIdx;
+            liveNextCueIndexHint = nextIdx;
+
+            if (n > 0)
+            {
+                TrackWidget *next = scene.tracks[nextIdx];
+                if (next)
+                {
+                    QString nl = next->altName().trimmed();
+                    if (nl.isEmpty())
+                        nl = QFileInfo(next->audioPath()).fileName();
+                    nextTitle = nl;
+
+                    QString hk = next->assignedKey().trimmed();
+                    if (!hk.isEmpty())
+                        nextHotkey = tr("Hotkey: %1").arg(hk);
+
+                    nextNotes = next->notesText().trimmed();
+                }
+            }
+        }
+        else
+        {
+            // No manual selection – keep previous behaviour: show hinted next (or first)
+            int idx = (liveNextCueIndexHint >= 0 && liveNextCueIndexHint < n) ? liveNextCueIndexHint : 0;
+            if (n > 0)
+            {
+                TrackWidget *next = scene.tracks[idx];
+                QString nl = next->altName().trimmed();
+                if (nl.isEmpty())
+                    nl = QFileInfo(next->audioPath()).fileName();
+
+                nextTitle = nl;
+
+                QString hk = next->assignedKey().trimmed();
+                if (!hk.isEmpty())
+                    nextHotkey = tr("Hotkey: %1").arg(hk);
+
+                nextNotes = next->notesText().trimmed();
+            }
         }
     }
+
 
     liveModeWindow->setCurrentCueDisplay(curTitle, status, bigTime, smallTime);
     liveModeWindow->setNextCueDisplay(nextTitle, nextHotkey, nextNotes);
@@ -2410,6 +2514,50 @@ void MainWindow::onLiveGoRequested()
     if (next)
         onTrackPlayRequested(next);
 }
+void MainWindow::onLivePlayRequested()
+{
+    // 1) If something is already active, reuse the normal track logic:
+    //    - if paused → resume
+    //    - if playing → toggle stop (same as per-track Play button behaviour)
+    if (currentTrack)
+    {
+        onTrackPlayRequested(currentTrack);
+        return;
+    }
+
+    // 2) If nothing is playing and we have a cue selected from the dropdown,
+    //    start that cue at its configured start position.
+    if (liveSelectedCue)
+    {
+        int sceneIdx = -1;
+        for (int i = 0; i < scenes.size(); ++i)
+        {
+            if (scenes[i].tracks.contains(liveSelectedCue))
+            {
+                sceneIdx = i;
+                break;
+            }
+        }
+
+        if (sceneIdx >= 0)
+        {
+            currentSceneIndex = sceneIdx;
+            if (sceneList)
+            {
+                QSignalBlocker blocker(sceneList);
+                sceneList->setCurrentRow(sceneIdx);
+            }
+            updateLiveSceneTree();
+        }
+
+        onTrackPlayRequested(liveSelectedCue);
+        return;
+    }
+
+    // 3) Fallback: behave like GO (play the hinted next cue in current scene)
+    onLiveGoRequested();
+}
+
 void MainWindow::onLiveResumeRequested()
 {
     // Only resume if there is a current track and it is paused
