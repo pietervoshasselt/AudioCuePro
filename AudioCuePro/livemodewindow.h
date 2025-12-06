@@ -10,6 +10,8 @@ class QTreeWidgetItem;
 class QLabel;
 class QPushButton;
 class QComboBox;      // NEW
+class QSlider;      // <--- add
+class QVBoxLayout;      // <-- ADD THIS
 class TrackWidget;
 
 // Dark-stage live view inspired by the mockup image.
@@ -57,6 +59,9 @@ signals:
        void trackActivated(TrackWidget *tw);
     void cueSelectionChanged(TrackWidget *tw); // NEW: dropdown cue changed
 
+    // NEW: global master volume coming from live monitor
+    void masterVolumeChanged(int value);
+	
 protected:
     void keyPressEvent(QKeyEvent *event) override;   // <--- add this
 	bool eventFilter(QObject *obj, QEvent *event) override;
@@ -90,6 +95,24 @@ private:
     // Map TrackWidget* → QTreeWidgetItem* in live tree
     QHash<TrackWidget*, QTreeWidgetItem*> trackItemMap;
 	    bool m_syncingTree = false;
+		
+    // --- NEW: Live monitor UI ---
+    QWidget *monitorHost = nullptr;        // container on the right
+    QVBoxLayout *monitorHostLayout = nullptr;
+    QSlider *masterSlider = nullptr;       // live Master gain
+
+    // embedded TrackWidget for non-Spotify cues
+    TrackWidget *embeddedTrack = nullptr;
+    QWidget *embeddedTrackOldParent = nullptr;
+    int embeddedTrackOldIndex = -1;
+
+public:
+    // NEW: show / clear current cue editor in Live Monitor
+    void showMonitoringForTrack(TrackWidget *tw);
+    void clearMonitoringTrack();
+
+    // NEW: keep Master slider in sync with main window
+    void setMasterVolumeUi(int value);
 
 };
 

@@ -1,4 +1,5 @@
 #include "livemodewindow.h"
+#include "trackwidget.h"      // <-- IMPORTANT
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QWidget>
@@ -270,26 +271,53 @@ centerLayout->addStretch(1);
 root->addWidget(centerPanel, 2);
 
 
-    // ===== RIGHT: Monitoring stub (can be extended later) =====
+     // RIGHT: Live Monitor panel
     QWidget *rightPanel = new QWidget(central);
-    auto *rightLayout = new QVBoxLayout(rightPanel);
+    QVBoxLayout *rightLayout = new QVBoxLayout(rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(8);
+    rightLayout->setSpacing(10);
 
-    QLabel *monitorLabel = new QLabel(tr("LIVE MONITORING"), rightPanel);
-    monitorLabel->setStyleSheet("font-size: 13px; letter-spacing: 2px;");
+    QLabel *monitorTitle = new QLabel(tr("LIVE MONITOR"), rightPanel);
+    monitorTitle->setStyleSheet("font-size: 14px; font-weight: 600; color: #aaaaaa;");
+    rightLayout->addWidget(monitorTitle);
+
+    // --- Master gain (global) ---
+    QWidget *masterRow = new QWidget(rightPanel);
+    QHBoxLayout *masterRowLayout = new QHBoxLayout(masterRow);
+    masterRowLayout->setContentsMargins(0, 0, 0, 0);
+    masterRowLayout->setSpacing(6);
+
+    QLabel *masterLbl = new QLabel(tr("Master gain"), masterRow);
+    masterSlider = new QSlider(Qt::Horizontal, masterRow);
+    masterSlider->setRange(0, 100);
+    masterSlider->setValue(100);
+
+    masterRowLayout->addWidget(masterLbl);
+    masterRowLayout->addWidget(masterSlider, 1);
+    rightLayout->addWidget(masterRow);
+
+    // Forward changes to MainWindow
+    connect(masterSlider, &QSlider::valueChanged,
+            this, &LiveModeWindow::masterVolumeChanged);
+
+    // --- Host for current cue editor (non-Spotify) ---
+    monitorHost = new QWidget(rightPanel);
+    monitorHost->setObjectName("monitorHost");	
+    monitorHostLayout = new QVBoxLayout(monitorHost);
+    monitorHostLayout->setContentsMargins(0, 8, 0, 0);
+    monitorHostLayout->setSpacing(8);
 
     QLabel *placeholder = new QLabel(
-        tr("Meters / CPU / waveform\n"
-           "can be added here later."),
-        rightPanel);
-    placeholder->setStyleSheet("color: #888888;");
-    placeholder->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+                tr("No cue selected.\nSelect a cue in the live tree or use the dropdown."),
+                monitorHost);
+    placeholder->setAlignment(Qt::AlignCenter);
+    placeholder->setWordWrap(true);
+    placeholder->setObjectName("monitorPlaceholder");
+    monitorHostLayout->addWidget(placeholder, 1);
 
-    rightLayout->addWidget(monitorLabel);
-    rightLayout->addWidget(placeholder, 1);
+    rightLayout->addWidget(monitorHost, 1);
 
-    root->addWidget(rightPanel, 1);
+    root->addWidget(rightPanel, 2);
 
     // ---- Wiring ----
     connect(exitButton, &QPushButton::clicked,
@@ -648,3 +676,107 @@ bool LiveModeWindow::eventFilter(QObject *obj, QEvent *event)
 
     return QMainWindow::eventFilter(obj, event);
 }
+void LiveModeWindow::clearMonitoringTrack()
+{
+    if (!embeddedTrack)
+        return;
+
+    if (monitorHostLayout)
+        monitorHostLayout->removeWidget(embeddedTrack);
+
+    if (embeddedTrackOldParent)
+    {
+        QLayout *oldLayout = embeddedTrackOldParent->layout();
+        if (auto box = qobject_cast<QBoxLayout*>(oldLayout))
+        {
+            if (embeddedTrackOldIndex >= 0)
+                box->insertWidget(embeddedTrackOldIndex, embeddedTrack);
+            else
+                box->addWidget(embeddedTrack);
+        }
+        else if (oldLayout)
+        {
+            oldLayout->addWidget(embeddedTrack);
+        }
+
+        embeddedTrack->setParent(embeddedTrackOldParent);
+    }
+
+    embeddedTrack = nullptr;
+    embeddedTrackOldParent = nullptr;
+    embeddedTrackOldIndex = -1;
+}
+
+void LiveModeWindow::showMonitoringForTrack(TrackWidget *tw)
+{
+    if (embeddedTrack == tw)
+        return;
+
+    // restore previous track (if any)
+    clearMonitoringTrack();
+
+    // remove old placeholder text
+    if (monitorHostLayout)
+    {
+        for (int i = monitorHostLayout->count() - 1; i >= 0; --i)
+        {
+            QWidget *w = monitorHostLayout->itemAt(i)->widget();
+            if (w && w->objectName() == "monitorPlaceholder")
+            {
+                monitorHostLayout->removeWidget(w);
+                w->deleteLater();
+            }
+        }
+    }
+
+    // If nothing or Spotify → show info message
+    if (!tw || tw->isSpotify())
+    {
+        if (monitorHostLayout)
+        {
+            QLabel *info = new QLabel(
+                tw && tw->isSpotify()
+                    ? tr("Spotify cue – waveform / fades / loop options are\ncontrolled from Spotify.")
+                    : tr("No cue selected."),
+                monitorHost);
+            info->setAlignment(Qt::AlignCenter);
+            info->setWordWrap(true);
+            info->setObjectName("monitorPlaceholder");
+            monitorHostLayout->addWidget(info, 1);
+        }
+        return;
+    }
+
+    // Non-Spotify: embed full TrackWidget so we get
+    // loop options, waveform, start/end, fades, and gain.
+    embeddedTrack = tw;
+    embeddedTrackOldParent = tw->parentWidget();
+    embeddedTrackOldIndex = -1;
+
+    if (embeddedTrackOldParent)
+    {
+        if (auto oldLayout = qobject_cast<QBoxLayout*>(embeddedTrackOldParent->layout()))
+        {
+            embeddedTrackOldIndex = oldLayout->indexOf(tw);
+            oldLayout->removeWidget(tw);
+        }
+        else if (embeddedTrackOldParent->layout())
+        {
+            embeddedTrackOldParent->layout()->removeWidget(tw);
+        }
+    }
+
+    tw->setParent(monitorHost);
+    if (monitorHostLayout)
+        monitorHostLayout->addWidget(tw);
+}
+
+void LiveModeWindow::setMasterVolumeUi(int value)
+{
+    if (!masterSlider)
+        return;
+
+    QSignalBlocker blocker(masterSlider);
+    masterSlider->setValue(value);
+}
+

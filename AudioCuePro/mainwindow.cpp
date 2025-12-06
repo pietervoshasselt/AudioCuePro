@@ -2236,23 +2236,44 @@ void MainWindow::ensureLiveModeWindow()
     // NEW:
     connect(liveModeWindow, &LiveModeWindow::cueSelectionChanged,
             this, &MainWindow::onLiveCueSelectionChanged);
+	connect(liveModeWindow, &LiveModeWindow::masterVolumeChanged,
+        this, &MainWindow::onMasterVolumeChanged);
     updateLiveSceneTree();
     updateLiveTimeline();
 }
 
 void MainWindow::onLiveModeButtonClicked()
 {
+    // Make sure the Live window exists and signals are wired
     ensureLiveModeWindow();
-    liveModeWindow->showFullScreen();
-    liveModeWindow->raise();
-    liveModeWindow->activateWindow();
+
+    if (liveModeWindow)
+    {
+        // Just show the live window. Master gain in live mode is controlled
+        // by the slider that lives *inside* LiveModeWindow now.
+        liveModeWindow->showFullScreen();
+        liveModeWindow->raise();
+        liveModeWindow->activateWindow();
+    }
+
+    // Keep the live timeline in sync
+    updateLiveTimeline();
 }
+
+
+
 
 void MainWindow::onLiveExitRequested()
 {
-    if (liveModeWindow)
-        liveModeWindow->hide();
+    if (!liveModeWindow)
+        return;
+
+    // restore embedded TrackWidget from Live monitor back to main UI
+    liveModeWindow->clearMonitoringTrack();
+    liveModeWindow->hide();
 }
+
+
 void MainWindow::onLiveTreeOrderChanged()
 {
     if (!liveModeWindow)
@@ -2522,7 +2543,11 @@ void MainWindow::updateLiveTimeline()
 
 
     liveModeWindow->setCurrentCueDisplay(curTitle, status, bigTime, smallTime);
-    liveModeWindow->setNextCueDisplay(nextTitle, nextHotkey, nextNotes);
+	liveModeWindow->setNextCueDisplay(nextTitle, nextHotkey, nextNotes);
+
+	if (liveModeWindow)
+		liveModeWindow->showMonitoringForTrack(currentTrack);
+
 }
 
 void MainWindow::onLiveGoRequested()
