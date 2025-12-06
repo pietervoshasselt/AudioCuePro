@@ -152,113 +152,123 @@ void LiveModeWindow::buildUi()
 
     root->addWidget(leftPanel, 1);
 
-    // ===== CENTER: Cue Timeline Card =====
-    QWidget *centerPanel = new QWidget(central);
-    auto *centerLayout = new QVBoxLayout(centerPanel);
-    centerLayout->setContentsMargins(0, 0, 0, 0);
-    centerLayout->setSpacing(12);
+// ===== CENTER: Cue Timeline Card =====
+QWidget *centerPanel = new QWidget(central);
+auto *centerLayout = new QVBoxLayout(centerPanel);
+centerLayout->setContentsMargins(0, 0, 0, 0);
+centerLayout->setSpacing(12);
 
-	    QLabel *timelineLabel = new QLabel(tr("CUE TIMELINE"), centerPanel);
-    timelineLabel->setStyleSheet("font-size: 13px; letter-spacing: 2px;");
+// Label + dropdown for cue selection
+QLabel *selectLabel = new QLabel(tr("SELECT CUE (after pressing stop)"), centerPanel);
+selectLabel->setStyleSheet("font-size: 13px; letter-spacing: 2px;");
+centerLayout->addWidget(selectLabel);
 
-    // Cue dropdown (select the current cue across all scenes)  // NEW
-    cueCombo = new QComboBox(centerPanel);
-    cueCombo->setMinimumWidth(260);
-    cueCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-    cueCombo->setToolTip(tr("Select which cue should be treated as the current cue"));
+cueCombo = new QComboBox(centerPanel);
+cueCombo->setMinimumWidth(260);
+cueCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+cueCombo->setToolTip(tr("Select which cue should be treated as the current cue"));
+centerLayout->addWidget(cueCombo);
 
-    // Current cue card
-    QWidget *currentCard = new QWidget(centerPanel);
-    currentCard->setObjectName("currentCard");
-    auto *currentLayout = new QVBoxLayout(currentCard);
-    currentLayout->setContentsMargins(18, 16, 18, 16);
-    currentLayout->setSpacing(6);
+// Timeline title for the cards
+QLabel *timelineLabel = new QLabel(tr("CUE TIMELINE"), centerPanel);
+timelineLabel->setStyleSheet("font-size: 13px; letter-spacing: 2px;");
+centerLayout->addWidget(timelineLabel);
 
-    currentTitleLabel = new QLabel(tr("—"), currentCard);
-    currentTitleLabel->setStyleSheet("font-size: 22px; font-weight: 600;");
+// Current cue card
+QWidget *currentCard = new QWidget(centerPanel);
+currentCard->setObjectName("currentCard");
+auto *currentLayout = new QVBoxLayout(currentCard);
+currentLayout->setContentsMargins(12, 8, 12, 8);
+currentLayout->setSpacing(2);
 
-    currentStatusLabel = new QLabel(tr("READY"), currentCard);
-    currentStatusLabel->setObjectName("statusBadge");
+QLabel *nowLabel = new QLabel(tr("NOW PLAYING"), currentCard);
+nowLabel->setStyleSheet("font-size: 11px; letter-spacing: 1px; color: #aaaaaa;");
+currentTitleLabel = new QLabel(tr("No cue"), currentCard);
+currentTitleLabel->setStyleSheet("font-size: 20px; font-weight: 600;");
+currentStatusLabel = new QLabel(tr("READY"), currentCard);
+currentStatusLabel->setStyleSheet("font-size: 11px; color: #ffeb3b;");
+currentBigTimeLabel = new QLabel(QStringLiteral("--:--"), currentCard);
+currentBigTimeLabel->setStyleSheet("font-size: 28px; font-weight: 600;");
+currentSmallTimeLabel = new QLabel(QString(), currentCard);
+currentSmallTimeLabel->setStyleSheet("font-size: 11px; color: #aaaaaa;");
 
-    currentBigTimeLabel = new QLabel(tr("--:--"), currentCard);
-    currentBigTimeLabel->setStyleSheet("font-size: 40px; font-weight: 700; color: #9eff3c;");
+currentLayout->addWidget(nowLabel);
+currentLayout->addWidget(currentTitleLabel);
+currentLayout->addWidget(currentStatusLabel);
+currentLayout->addWidget(currentBigTimeLabel);
+currentLayout->addWidget(currentSmallTimeLabel);
 
-    currentSmallTimeLabel = new QLabel(tr(""), currentCard);
-    currentSmallTimeLabel->setStyleSheet("font-size: 13px; color: #aaaaaa;");
+// Next cue card
+QLabel *nextLabel = new QLabel(tr("NEXT CUE"), centerPanel);
+nextLabel->setStyleSheet("font-size: 11px; letter-spacing: 1px; color: #aaaaaa;");
 
-    currentLayout->addWidget(currentTitleLabel);
-    currentLayout->addWidget(currentStatusLabel);
-    currentLayout->addSpacing(4);
-    currentLayout->addWidget(currentBigTimeLabel);
-    currentLayout->addWidget(currentSmallTimeLabel);
+QWidget *nextCard = new QWidget(centerPanel);
+nextCard->setObjectName("nextCard");
+auto *nextLayout = new QVBoxLayout(nextCard);
+nextLayout->setContentsMargins(12, 8, 12, 8);
+nextLayout->setSpacing(2);
 
-    // Next cue section
-    QLabel *nextLabel = new QLabel(tr("NEXT CUE"), centerPanel);
-    nextLabel->setStyleSheet("font-size: 12px; letter-spacing: 2px;");
+nextTitleLabel = new QLabel(tr("No cue"), nextCard);
+nextTitleLabel->setStyleSheet("font-size: 14px; font-weight: 500;");
+nextHotkeyLabel = new QLabel(QString(), nextCard);
+nextHotkeyLabel->setStyleSheet("font-size: 11px; color: #aaaaaa;");
+nextNotesLabel = new QLabel(QString(), nextCard);
+nextNotesLabel->setStyleSheet("font-size: 11px; color: #aaaaaa;");
+nextNotesLabel->setWordWrap(true);
 
-    QWidget *nextCard = new QWidget(centerPanel);
-    nextCard->setObjectName("nextCard");
-    auto *nextLayout = new QVBoxLayout(nextCard);
-    nextLayout->setContentsMargins(14, 12, 14, 12);
-    nextLayout->setSpacing(4);
+nextLayout->addWidget(nextTitleLabel);
+nextLayout->addWidget(nextHotkeyLabel);
+nextLayout->addWidget(nextNotesLabel);
 
-    nextTitleLabel = new QLabel(tr("—"), nextCard);
-    nextTitleLabel->setStyleSheet("font-size: 16px; font-weight: 500;");
-    nextHotkeyLabel = new QLabel(tr(""), nextCard);
-    nextHotkeyLabel->setStyleSheet("font-size: 13px; color: #bbbbbb;");
-    nextNotesLabel = new QLabel(tr(""), nextCard);
-    nextNotesLabel->setWordWrap(true);
-    nextNotesLabel->setStyleSheet("font-size: 18px; font-weight: 600; color: #e0e0e0;");
-    nextNotesLabel->setVisible(false);
+// Transport row (Play/Go/Pause/Stop/Panic)
+auto *transportRow = new QHBoxLayout();
+transportRow->setSpacing(8);
 
-    nextLayout->addWidget(nextTitleLabel);
-    nextLayout->addWidget(nextHotkeyLabel);
-    nextLayout->addWidget(nextNotesLabel);
+playButton = makeTransportIconButton(
+    "play.png",
+    tr("Play / Resume"),
+    tr("Play / Resume"),              // tooltip
+    centerPanel);
 
-    // GO + transport buttons
-    goButton = new QPushButton(tr("PLAY NEXT"), centerPanel);
-    goButton->setMinimumHeight(80);
-    goButton->setObjectName("goButton");
+goButton   = makeTransportIconButton(
+    "go.png",
+    tr("Play next"),
+    tr("Play next"),                  // tooltip
+    centerPanel);
 
-    auto *transportRow = new QHBoxLayout();
-    transportRow->setSpacing(8);
+pauseButton = makeTransportIconButton(
+    "pause.png",
+    tr("Pause"),
+    tr("Pause"),                      // tooltip
+    centerPanel);
 
-    // Use same icons as TrackWidget (pause.png / stop.png) and make them big
-       playButton = makeTransportIconButton("play.png",
-                                         tr("Play"),
-                                         tr("Play selected cue / Resume current cue"),
-                                         centerPanel);
-   pauseButton = makeTransportIconButton("pause.png",
-                                          tr("Pause"),
-                                          tr("Pause current cue"),
-                                          centerPanel);
+stopButton  = makeTransportIconButton(
+    "stop.png",
+    tr("Stop"),
+    tr("Stop"),                       // tooltip
+    centerPanel);
 
-    stopButton  = makeTransportIconButton("stop.png",
-                                          tr("Stop"),
-                                          tr("Stop current cue"),
-                                          centerPanel);
+panicButton = makeTransportIconButton(
+    "panic.png",
+    tr("Panic (stop all)"),
+    tr("Panic (stop all)"),           // tooltip
+    centerPanel);
 
-    panicButton = new QPushButton(tr("PANIC"), centerPanel);
-    panicButton->setObjectName("panicButtonLive");
-    panicButton->setMinimumHeight(64);  // make PANIC big too
+transportRow->addWidget(playButton);
+transportRow->addWidget(goButton);
+transportRow->addWidget(pauseButton);
+transportRow->addWidget(stopButton);
+transportRow->addWidget(panicButton);
 
-    transportRow->addWidget(playButton);
-    transportRow->addWidget(pauseButton);
-    transportRow->addWidget(stopButton);
-    transportRow->addWidget(panicButton);
+centerLayout->addWidget(currentCard);
+centerLayout->addWidget(nextLabel);
+centerLayout->addWidget(nextCard);
+centerLayout->addSpacing(12);
+centerLayout->addLayout(transportRow);
+centerLayout->addStretch(1);
 
-    centerLayout->addWidget(timelineLabel);
-    centerLayout->addWidget(cueCombo);    // NEW
-    centerLayout->addWidget(currentCard);
-    centerLayout->addSpacing(8);
-    centerLayout->addWidget(nextLabel);
-    centerLayout->addWidget(nextCard);
-    centerLayout->addSpacing(12);
-    centerLayout->addWidget(goButton);
-    centerLayout->addLayout(transportRow);
-    centerLayout->addStretch(1);
+root->addWidget(centerPanel, 2);
 
-    root->addWidget(centerPanel, 2);
 
     // ===== RIGHT: Monitoring stub (can be extended later) =====
     QWidget *rightPanel = new QWidget(central);
@@ -295,18 +305,33 @@ void LiveModeWindow::buildUi()
             this,       &LiveModeWindow::stopRequested);
     connect(panicButton, &QPushButton::clicked,
             this,        &LiveModeWindow::panicRequested);
-    connect(cueCombo,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this,
-            [this](int index) {
-                if (cueComboUpdating)
+connect(cueCombo,
+        QOverload<int>::of(&QComboBox::currentIndexChanged),
+        this,
+        [this](int index) {
+            if (cueComboUpdating)
+                return;
+
+            TrackWidget *tw = nullptr;
+
+            // index 0 = "Current cue" (tw stays nullptr)
+            if (index > 0)
+            {
+                int listIndex = index - 1;
+                if (listIndex < 0 || listIndex >= cueTrackList.size())
                     return;
-                if (index < 0 || index >= cueTrackList.size())
-                    return;
-                TrackWidget *tw = cueTrackList.at(index);
-                if (tw)
-                    emit cueSelectionChanged(tw);     // NEW
-            });
+                tw = cueTrackList.at(listIndex);
+            }
+
+            // nullptr means "use current cue / clear manual selection"
+            emit cueSelectionChanged(tw);
+
+            // After selecting any cue, always snap back to "Current cue"
+            cueComboUpdating = true;
+            cueCombo->setCurrentIndex(0);
+            cueComboUpdating = false;
+        });
+
 
     connect(sceneTree, &QTreeWidget::currentItemChanged,
             this, [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
@@ -402,26 +427,29 @@ void LiveModeWindow::applyDarkStyle()
 
 void LiveModeWindow::setSceneTree(const QList<SceneEntry> &scenes, int currentSceneIndex)
 {
-	Q_UNUSED(currentSceneIndex);
+    Q_UNUSED(currentSceneIndex);
 
-    m_syncingTree = true;       
+    m_syncingTree = true;
     trackItemMap.clear();
     sceneTree->clear();
 
-    // NEW: rebuild cue dropdown
+    // --- rebuild cue dropdown ---
     cueComboUpdating = true;
     cueTrackList.clear();
     if (cueCombo)
+    {
         cueCombo->clear();
-	
+        // index 0 = "Current cue" → means "don't override, use normal next cue"
+        cueCombo->addItem(tr("Current cue"));
+    }
+
     for (int i = 0; i < scenes.size(); ++i)
     {
         const SceneEntry &se = scenes[i];
 
         auto *sceneItem = new QTreeWidgetItem(sceneTree);
         sceneItem->setText(0, se.name);
-		
-        // Scene items: selectable + drop targets, not draggable
+
         Qt::ItemFlags sflags = sceneItem->flags();
         sflags |= Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDropEnabled;
         sflags &= ~Qt::ItemIsDragEnabled;
@@ -441,22 +469,22 @@ void LiveModeWindow::setSceneTree(const QList<SceneEntry> &scenes, int currentSc
             auto *child = new QTreeWidgetItem(sceneItem);
             child->setText(0, label);
             child->setForeground(0, QBrush(QColor("#dddddd")));
-           // Track items: draggable, not drop targets
+
             Qt::ItemFlags cflags = child->flags();
             cflags |= Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled;
             cflags &= ~Qt::ItemIsDropEnabled;
             child->setFlags(cflags);
-			  // NEW: add to cue dropdown
+
+            // add to dropdown (index = cueTrackList.size() + 1 because 0 is "Current cue")
             cueTrackList.append(tw);
             if (cueCombo)
             {
                 QString comboText = se.name.isEmpty()
-                    ? label
-                    : QStringLiteral("%1 – %2").arg(se.name, label);
+                        ? label
+                        : QStringLiteral("%1 – %2").arg(se.name, label);
                 cueCombo->addItem(comboText);
             }
- 
-            // Store TrackWidget* so we can rebuild the scene model
+
             child->setData(0, Qt::UserRole,
                            QVariant::fromValue<quintptr>(
                                reinterpret_cast<quintptr>(tw)));
@@ -465,18 +493,15 @@ void LiveModeWindow::setSceneTree(const QList<SceneEntry> &scenes, int currentSc
     }
 
     sceneTree->expandAll();
-	    // Finalize dropdown state                                    // NEW
+
     if (cueCombo)
     {
         cueCombo->setEnabled(!cueTrackList.isEmpty());
-        if (cueTrackList.isEmpty())
-            cueCombo->setCurrentIndex(-1);
-        else
-            cueCombo->setCurrentIndex(0);
+        cueCombo->setCurrentIndex(0);      // "Current cue" selected by default
     }
+
     cueComboUpdating = false;
     m_syncingTree = false;
-
 }
 QList<LiveModeWindow::SceneEntry> LiveModeWindow::exportedSceneOrder() const
 {

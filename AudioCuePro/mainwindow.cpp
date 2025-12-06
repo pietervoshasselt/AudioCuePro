@@ -2045,8 +2045,14 @@ void MainWindow::onLiveTrackActivated(TrackWidget *tw)
 
 void MainWindow::onLiveCueSelectionChanged(TrackWidget *tw)
 {
+    // nullptr means the user chose "Current cue" in the dropdown:
+    // clear any manual override.
     if (!tw)
+    {
+        liveSelectedCue = nullptr;
+        updateLiveTimeline();
         return;
+    }
 
     liveSelectedCue = tw;
 
@@ -2088,6 +2094,7 @@ void MainWindow::onLiveCueSelectionChanged(TrackWidget *tw)
         updateLiveTimeline();
     }
 }
+
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
@@ -2526,13 +2533,15 @@ void MainWindow::onLivePlayRequested()
     }
 
     // 2) If nothing is playing and we have a cue selected from the dropdown,
-    //    start that cue at its configured start position.
+    //    start that cue at its configured start position (one-shot).
     if (liveSelectedCue)
     {
+        TrackWidget *tw = liveSelectedCue;
+
         int sceneIdx = -1;
         for (int i = 0; i < scenes.size(); ++i)
         {
-            if (scenes[i].tracks.contains(liveSelectedCue))
+            if (scenes[i].tracks.contains(tw))
             {
                 sceneIdx = i;
                 break;
@@ -2550,7 +2559,11 @@ void MainWindow::onLivePlayRequested()
             updateLiveSceneTree();
         }
 
-        onTrackPlayRequested(liveSelectedCue);
+        // One‑shot: once we start this manually selected cue,
+        // go back to "Current cue" behaviour.
+        liveSelectedCue = nullptr;
+
+        onTrackPlayRequested(tw);
         return;
     }
 
