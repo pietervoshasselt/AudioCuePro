@@ -167,8 +167,8 @@ private:
     TrackWidget *pendingTrackAfterFade = nullptr;
     QTimer *spotifyPollTimer = nullptr;
     int liveNextCueIndexHint = 0;
-    TrackWidget *liveSelectedCue = nullptr;     // NEW: cue chosen in Live Mode dropdown
-
+    TrackWidget *liveSelectedCue = nullptr;     // NEW: cue chosen in Live Mode dropdown	
+	TrackWidget *liveLastStoppedTrack = nullptr; // NEW: cue stopped via Live Stop
     // Loading support
     QString lastAudioFolder;
 

@@ -2567,7 +2567,40 @@ void MainWindow::onLivePlayRequested()
         return;
     }
 
-    // 3) Fallback: behave like GO (play the hinted next cue in current scene)
+    // 3) If we previously stopped a cue via Live Stop, restart THAT cue
+    //    instead of jumping to the next one.
+    if (liveLastStoppedTrack)
+    {
+        TrackWidget *tw = liveLastStoppedTrack;
+        liveLastStoppedTrack = nullptr;   // consume it
+
+        // Make sure currentSceneIndex points to the scene that owns this track
+        int sceneIdx = -1;
+        for (int i = 0; i < scenes.size(); ++i)
+        {
+            if (scenes[i].tracks.contains(tw))
+            {
+                sceneIdx = i;
+                break;
+            }
+        }
+
+        if (sceneIdx >= 0)
+        {
+            currentSceneIndex = sceneIdx;
+            if (sceneList)
+            {
+                QSignalBlocker blocker(sceneList);
+                sceneList->setCurrentRow(sceneIdx);
+            }
+            updateLiveSceneTree();
+        }
+
+        onTrackPlayRequested(tw);
+        return;
+    }
+
+    // 4) Fallback: behave like GO (play the hinted next cue in current scene)
     onLiveGoRequested();
 }
 
@@ -2597,6 +2630,8 @@ void MainWindow::onLivePauseRequested()
 void MainWindow::onLiveStopRequested()
 {
     if (currentTrack)
+		// Remember which cue was stopped by the Live Stop button
+		liveLastStoppedTrack = currentTrack;
         onTrackStopRequested(currentTrack);
     // Do not reset liveNextCueIndexHint so next cue stays put.
 }
