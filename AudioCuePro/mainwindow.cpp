@@ -429,12 +429,21 @@ m_spotifyAuth->setClientId("7e9997c47b094a138dcb965e40c5d63c");
                              << "user-modify-playback-state"
                              << "user-read-playback-state");
 
-    // Load saved tokens (if any)
-    QSettings settings("AudioCuePro", "AudioCuePro");
-    const QString savedAccess  = settings.value("spotify/accessToken").toString();
-    const QString savedRefresh = settings.value("spotify/refreshToken").toString();
-    if (!savedAccess.isEmpty())
-        m_spotifyClient->setAccessToken(savedAccess);
+	// Load saved tokens (if any)
+	QSettings settings("AudioCuePro", "AudioCuePro");
+	const QString savedAccess  = settings.value("spotify/accessToken").toString();
+	const QString savedRefresh = settings.value("spotify/refreshToken").toString();
+
+	// If we have a refresh token, use it to get a fresh access token
+	if (!savedRefresh.isEmpty()) {
+		// This will emit authSucceeded(...) again and update both tokens.
+		m_spotifyAuth->refreshToken(savedRefresh);
+	}
+	// Otherwise, fall back to whatever access token we last stored
+	else if (!savedAccess.isEmpty()) {
+		m_spotifyClient->setAccessToken(savedAccess);
+	}
+
 
 	spotifyPollTimer = new QTimer(this);
 	spotifyPollTimer->setInterval(1000);
@@ -473,9 +482,6 @@ m_spotifyAuth->setClientId("7e9997c47b094a138dcb965e40c5d63c");
     QAction *spotifyLoginAction = settingsMenu->addAction(tr("Spotify Login..."));
     connect(spotifyLoginAction, &QAction::triggered,
             this, &MainWindow::onSpotifyLogin);
-    // Example: read token from environment variable for now
-    QString token = qEnvironmentVariable("SPOTIFY_ACCESS_TOKEN");
-    m_spotifyClient->setAccessToken(token);
 
     // Show errors as message boxes
     connect(m_spotifyClient, &SpotifyClient::errorOccurred,
